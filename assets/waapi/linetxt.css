@@ -1,0 +1,56 @@
+.linetxt {
+    display: inline-block;
+}
+
+.linetxt__word {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.linetxt__unit {
+    display: inline-block;
+    transform-origin: 50% 55%;
+    white-space: pre;
+    will-change: opacity, transform;
+}
+
+/* Zero-width caret: the visible bar is painted by an absolutely positioned
+   pseudo-element, so moving the caret between characters never reflows text. */
+.linetxt__caret {
+    position: relative;
+    display: inline-block;
+    width: 0;
+}
+
+.linetxt__caret::after {
+    position: absolute;
+    inset-block: 0.1em 0;
+    inset-inline-start: 0.06em;
+    width: 0.08em;
+    min-width: 1px;
+    background: currentColor;
+    content: "";
+    animation: linetxt-caret 1s steps(1, end) infinite;
+}
+
+@keyframes linetxt-caret {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    50.01%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .linetxt__unit {
+        will-change: auto;
+    }
+
+    .linetxt__caret::after {
+        animation: none;
+    }
+}

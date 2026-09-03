@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>linetxt browser tests</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="../../assets/waapi/linetxt.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 1.5rem;
+            color: #111;
+            background: #fff;
+            font: 13px/1.45 ui-monospace, "SF Mono", monospace;
+        }
+
+        #stage {
+            width: 380px;
+            font-family: system-ui, sans-serif;
+            font-size: 20px;
+            line-height: 1.3;
+        }
+
+        #results {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        li {
+            padding: 1px 0;
+        }
+
+        .pass::before {
+            content: "PASS  ";
+            color: #0a7a34;
+        }
+
+        .fail::before {
+            content: "FAIL  ";
+            color: #c0271b;
+        }
+
+        .fail {
+            color: #c0271b;
+        }
+
+        #summary {
+            margin: 0 0 1rem;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <p id="summary">running…</p>
+    <ul id="results"></ul>
+    <div id="stage" aria-hidden="true"></div>
+
+    <script type="module">
+        // Cache-busted so a run always exercises the file on disk rather than
+        // a copy the browser kept from an earlier version of the module.
+        const { linetxt } = await import(`../../assets/waapi/linetxt.js?v=${Date.now()}`)
+
+        const stage = document.querySelector("#stage")
+        const results = document.querySelector("#results")
+        const checks = []
+
+        // setTimeout rather than requestAnimationFrame: rAF is throttled to a
+        // standstill while the tab is hidden, which would hang the whole run.
+        const tick = () => new Promise((resolve) => setTimeout(resolve, 32))
+
+        function check(name, condition, detail = "") {
+            const passed = Boolean(condition)
+            checks.push(passed)
+            const item = document.createElement("li")
+            item.className = passed ? "pass" : "fail"
+            item.textContent = passed ? name : `${name} — ${detail}`
+            results.append(item)
+        }
+
+        /** Runs one scenario so a thrown assertion cannot abort the whole run. */
+        async function scenario(name, body) {
+            try {
+                await body()
+            } catch (error) {
+                check(`${name}: scenario crashed`, false, String(error))
+            }
+        }
+
+        function host(text, tag = "p") {
+            const node = document.createElement(tag)
+            node.style.margin = "0"
+            node.textContent = text
+            stage.replaceChildren(node)
+            return node
+        }
+
+        const units = (node) => [...node.querySelectorAll(".linetxt__unit")]
+        const delays = (node) => units(node)
+            .map((unit) => unit.getAnimations()[0]?.effect.getTiming().delay ?? null)
+        const timing = (node) => units(node)[0]?.getAnimations()[0]?.effect.getTiming() ?? {}
+        const sortedDelays = (node) => [...new Set(delays(node))].sort((a, b) => a - b)
+        const animations = (node) => units(node).flatMap((unit) => unit.getAnimations())
+
+        /**
+         * Drives a reveal to completion without waiting on the wall clock.
+         * Browsers pause WAAPI in a hidden tab, so awaiting real elapsed time
+         * would make this suite hang rather than fail.
+         */
+        async function settle(node, controls) {
+            let done = false
+            controls.finished.then(() => { done = true }, () => { done = true })
+
+            for (let attempt = 0; attempt < 60 && !done; attempt += 1) {
+                for (const animation of animations(node)) animation.finish()
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            check(`${node.dataset.linetxt ?? "reveal"} settles`, done, "timed out")
+        }
+
+        // Reveals are pinned to the animated path so the suite is deterministic
+        // on machines that have "reduce motion" enabled. Reduced motion has its
+        // own scenario below.
+        const animated = (extra) => ({ respectReducedMotion: false, ...extra })
+
+        /** Round-trips a transform through the CSSOM so comparisons use the
+            browser's own serialization, not the literal source string. */
+        function css(transform) {
+            const probe = document.createElement("span")
+            probe.style.transform = transform
+            return probe.style.transform
+        }
+
+        const settledAt = (node, y) => units(node)
+            .every((unit) => unit.style.transform === css(`translate3d(0, ${y}px, 0)`))
+
+        /** Counts rendered lines independently of the module, via Range rects. */
+        function measureRenderedLines(text) {
+            const probe = document.createElement("p")
+            probe.style.margin = "0"
+            probe.textContent = text
+            stage.append(probe)
+
+            const range = document.createRange()
+            range.selectNodeContents(probe)
+            const tops = [...range.getClientRects()].map((rect) => Math.round(rect.top))
+            probe.remove()
+
+            return new Set(tops).size
+        }
+
+        await scenario("mode is required", async () => {
+            const node = host("Hello world")
+            let missing = null
+            let unknown = null
+            try { linetxt(node, {}) } catch (error) { missing = error }
+            try { linetxt(node, { type: "sparkle" }) } catch (error) { unknown = error }
+
+            check("throws when no mode is given", missing instanceof TypeError, String(missing))
+            check("throws on an unknown mode", unknown instanceof TypeError, String(unknown))
+            check(
+                "the error names the three valid modes",
+                /typewriter, line-reveal, gentle/.test(missing?.message ?? ""),
+                missing?.message,
+            )
+        })
+
+        await scenario("typewriter, single line", async () => {
+            const text = "Hello world"
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "typewriter", charInterval: 45 }))
+            await tick()
+
+            const before = node.getBoundingClientRect()
+            const expected = String([...Array(11)].map((_, index) => index * 45))
+
+            check("typewriter splits every grapheme", units(node).length === 11, String(units(node).length))
+            check("typewriter delays step by charInterval", String(delays(node)) === expected, String(delays(node)))
+            check("typewriter renders a caret", node.querySelectorAll(".linetxt__caret").length === 1)
+            check("typewriter starts transparent", units(node).at(-1) && getComputedStyle(units(node).at(-1)).opacity === "0")
+
+            await settle(node, controls)
+            const after = node.getBoundingClientRect()
+
+            check(
+                "typewriter does not reflow while typing",
+                before.width === after.width && before.height === after.height,
+                `${before.width}x${before.height} → ${after.width}x${after.height}`,
+            )
+            check("typewriter ends fully opaque", units(node).every((unit) => unit.style.opacity === "1"))
+            check("typewriter removes the caret when done", node.querySelectorAll(".linetxt__caret").length === 0)
+            check("typewriter keeps the text intact", node.textContent === text, node.textContent)
+            controls.destroy()
+        })
+
+        await scenario("typewriter, caret tracks the typing position", async () => {
+            const node = host("Hello world")
+            const controls = linetxt(node, animated({ type: "typewriter", charInterval: 60 }))
+            await tick()
+
+            const caret = () => node.querySelector(".linetxt__caret")
+            const cells = units(node)
+            const timeline = cells.map((unit) => unit.getAnimations()[0])
+
+            // A hidden tab leaves the document timeline unresolved, and
+            // finish() on a still-pending animation queues no finish
+            // notification. Wait for every animation to have a start time.
+            await Promise.all(timeline.map((animation) => animation.ready.catch(() => undefined)))
+
+            // The invariant: the caret always sits immediately after the last
+            // character whose animation has completed. Asserting the invariant
+            // rather than a fixed schedule keeps this valid whether the
+            // timeline advanced on its own or was stepped by finish().
+            const revealedCount = () => timeline
+                .filter((animation) => animation.playState === "finished").length
+
+            const misplaced = []
+            let reached = -1
+            for (const animation of timeline) {
+                const settledCount = revealedCount()
+                animation.finish()
+                await animation.finished.catch(() => undefined)
+                await tick()
+
+                const bar = caret()
+                if (!bar) break
+
+                const index = Math.max(revealedCount(), settledCount) - 1
+                const expected = cells[index] ?? null
+                if (bar.previousElementSibling !== expected) {
+                    misplaced.push(
+                        `expected caret after "${expected?.textContent ?? "start"}", found it after "${bar.previousElementSibling?.textContent ?? "start"}"`,
+                    )
+                } else {
+                    reached = index
+                }
+            }
+
+            check("caret follows the last revealed character", misplaced.length === 0, misplaced.join("; "))
+            // The caret is removed as soon as the whole reveal settles, which
+            // a throttled tab can reach in one jump, so assert that it was
+            // observed tracking a real character rather than a fixed index.
+            check("caret tracked at least one revealed character", reached >= 0, `reached index ${reached}`)
+
+            await settle(node, controls)
+            check("caret reached the end before being removed", units(node).every((unit) => unit.style.opacity === "1"))
+            controls.destroy()
+        })
+
+        await scenario("typewriter, initialDelay and caretPersist", async () => {
+            const node = host("Hi")
+            const controls = linetxt(node, animated({
+                type: "typewriter",
+                charInterval: 20,
+                caretPersist: true,
+                initialDelay: 150,
+            }))
+            await tick()
+            check("initialDelay defers the reveal", units(node).length === 0, String(units(node).length))
+
+            await settle(node, controls)
+            check("caretPersist keeps the caret", node.querySelectorAll(".linetxt__caret").length === 1)
+            controls.destroy()
+        })
+
+        await scenario("typewriter, easing and fade", async () => {
+            const node = host("Hi")
+            const controls = linetxt(node, animated({
+                type: "typewriter",
+                charDuration: 120,
+                easing: "ease-in-out",
+            }))
+            await tick()
+            check("typewriter forwards easing", timing(node).easing === "ease-in-out", String(timing(node).easing))
+            check("typewriter forwards charDuration", timing(node).duration === 120, String(timing(node).duration))
+            controls.destroy()
+        })
+
+        await scenario("line-reveal, three explicit lines", async () => {
+            const text = "This is the first line\nThis is the second line\nThis is the third line"
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "line-reveal" }))
+            await tick()
+
+            check("line-reveal finds three lines", sortedDelays(node).length === 3, String(sortedDelays(node)))
+            check("line-reveal defaults to a 100ms stagger", String(sortedDelays(node)) === "0,100,200", String(sortedDelays(node)))
+            check("line-reveal defaults to 600ms", timing(node).duration === 600, String(timing(node).duration))
+            check("line-reveal uses the documented easing", timing(node).easing === "cubic-bezier(0.2, 0.8, 0.2, 1)", String(timing(node).easing))
+            check("line-reveal starts 16px below", settledAt(node, 16), units(node)[0].style.transform)
+            check("line-reveal preserves both line breaks", node.querySelectorAll("br").length === 2, String(node.querySelectorAll("br").length))
+            check("line-reveal keeps the text intact", node.textContent === text.replaceAll("\n", ""), JSON.stringify(node.textContent))
+
+            await settle(node, controls)
+            check("line-reveal settles fully opaque", units(node).every((unit) => unit.style.opacity === "1"))
+            check("line-reveal settles at the natural position", settledAt(node, 0), units(node)[0].style.transform)
+            controls.destroy()
+        })
+
+        await scenario("line-reveal, custom stagger", async () => {
+            const node = host("one\ntwo\nthree")
+            const controls = linetxt(node, animated({ type: "line-reveal", stagger: 250 }))
+            await tick()
+            check("line-reveal honours a custom stagger", String(sortedDelays(node)) === "0,250,500", String(sortedDelays(node)))
+            controls.destroy()
+        })
+
+        await scenario("line-reveal, single line", async () => {
+            const node = host("Hello world")
+            const controls = linetxt(node, animated({ type: "line-reveal" }))
+            await tick()
+            check(
+                "single-line text animates as one group",
+                sortedDelays(node).length === 1 && sortedDelays(node)[0] === 0,
+                String(sortedDelays(node)),
+            )
+            await settle(node, controls)
+            check("single-line text still reveals", units(node).every((unit) => unit.style.opacity === "1"))
+            controls.destroy()
+        })
+
+        await scenario("line-reveal, wrapping paragraph", async () => {
+            const text = "A paragraph long enough to wrap across several rendered lines at this width, so line-reveal has to group the words it actually sees instead of trusting a hardcoded line count."
+            const expected = measureRenderedLines(text)
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "line-reveal" }))
+            await tick()
+
+            const groups = sortedDelays(node)
+            check("wrapping text yields more than one line", groups.length > 1, String(groups.length))
+            check("visual grouping matches the rendered line count", groups.length === expected, `module ${groups.length} vs measured ${expected}`)
+            check("visual groups stay 100ms apart", groups.every((delay, index) => delay === index * 100), String(groups))
+
+            const words = [...node.querySelectorAll(".linetxt__word")]
+            const heights = words.map((word) => word.getBoundingClientRect().height)
+            const tops = words.map((word) => Math.round(word.getBoundingClientRect().top))
+            check("words are never split across lines", Math.max(...heights) < 40, String(Math.max(...heights)))
+            check("words span multiple rendered rows", new Set(tops).size > 1, String(new Set(tops).size))
+            controls.destroy()
+        })
+
+        await scenario("line-reveal, forced lineSource", async () => {
+            const node = host("Hello world that certainly wraps at this narrow stage width for sure")
+            const controls = linetxt(node, animated({ type: "line-reveal", lineSource: "text" }))
+            await tick()
+            check('lineSource "text" ignores visual wrapping', sortedDelays(node).length === 1, String(sortedDelays(node).length))
+            controls.destroy()
+        })
+
+        await scenario("gentle, serega contract", async () => {
+            const text = "Fast and fluid."
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "gentle" }))
+            await tick()
+
+            const expected = String(units(node).map((_, index) => index * 15))
+            check("gentle staggers 15ms per character", String(delays(node)) === expected, String(delays(node)))
+            check("gentle runs for 500ms", timing(node).duration === 500, String(timing(node).duration))
+            check("gentle uses the serega easing", timing(node).easing === "cubic-bezier(0.2, 0.8, 0.2, 1)", String(timing(node).easing))
+            check("gentle starts 15px below", settledAt(node, 15), units(node)[0].style.transform)
+
+            const frames = units(node)[0].getAnimations()[0].effect.getKeyframes()
+            const blurred = frames.some((frame) => String(frame.filter ?? "").includes("blur"))
+            check("gentle never animates blur", !blurred, JSON.stringify(frames))
+            check("gentle sets no filter on any unit", units(node).every((unit) => !unit.style.filter))
+
+            await settle(node, controls)
+            check("gentle settles at the natural position", settledAt(node, 0), units(node)[0].style.transform)
+            check("gentle settles fully opaque", units(node).every((unit) => unit.style.opacity === "1"))
+            check("gentle adds no exit animation", units(node).every((unit) => unit.getAnimations().length === 0))
+            check("gentle keeps the text intact", node.textContent === text, node.textContent)
+            controls.destroy()
+        })
+
+        await scenario("gentle, long multiline copy", async () => {
+            const text = "Serega gentle is safe for long copy because it only animates\ntransform and opacity across every character of the phrase."
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "gentle" }))
+            await tick()
+
+            const count = units(node).length
+            check("gentle handles long multiline copy", count > 100, `${count} units`)
+            check("gentle staggers to the last character", delays(node)[count - 1] === (count - 1) * 15, String(delays(node)[count - 1]))
+            check("gentle preserves the line break", node.querySelectorAll("br").length === 1, String(node.querySelectorAll("br").length))
+            controls.destroy()
+        })
+
+        await scenario("accessibility and graphemes", async () => {
+            const text = "Привет, мир 👋🏽"
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "gentle" }))
+            await tick()
+
+            check("host exposes the full text as aria-label", node.getAttribute("aria-label") === text, String(node.getAttribute("aria-label")))
+            check("split spans are hidden from assistive tech", units(node).every((unit) => unit.getAttribute("aria-hidden") === "true"))
+            check("emoji stays a single unit", units(node).some((unit) => unit.textContent === "👋🏽"), units(node).map((unit) => unit.textContent).join("|"))
+            check("Cyrillic graphemes survive the split", node.textContent === text, node.textContent)
+            controls.destroy()
+        })
+
+        await scenario("lifecycle", async () => {
+            const text = "Restore me"
+            const node = host(text)
+            node.setAttribute("aria-label", "original")
+            const controls = linetxt(node, animated({ type: "gentle" }))
+            await tick()
+            check("host is tagged with its mode", node.dataset.linetxt === "gentle", String(node.dataset.linetxt))
+
+            controls.destroy()
+            check("destroy restores the original text", node.textContent === text, node.textContent)
+            check("destroy restores the original aria-label", node.getAttribute("aria-label") === "original", String(node.getAttribute("aria-label")))
+            check("destroy removes the host class", !node.classList.contains("linetxt"))
+            check("destroy clears the mode attribute", node.dataset.linetxt === undefined, String(node.dataset.linetxt))
+            check("destroy leaves no units behind", units(node).length === 0, String(units(node).length))
+        })
+
+        await scenario("stop and replay", async () => {
+            const node = host("Replay me")
+            const controls = linetxt(node, animated({ type: "typewriter", charInterval: 30 }))
+            await tick()
+            controls.stop()
+            check("stop renders static text", node.textContent === "Replay me" && units(node).length === 0, String(units(node).length))
+
+            controls.play()
+            await tick()
+            check("play restarts the reveal", units(node).length === 9, String(units(node).length))
+            await settle(node, controls)
+            controls.destroy()
+        })
+
+        await scenario("reduced motion", async () => {
+            const node = host("Static please")
+            // respectReducedMotion is left on here on purpose.
+            const controls = linetxt(node, { type: "gentle" })
+            await settle(node, controls)
+
+            const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches
+            check(
+                reduced
+                    ? "reduced motion renders static text"
+                    : "reduced motion is off in this browser, so the reveal ran",
+                reduced ? units(node).length === 0 : units(node).length > 0,
+                `reduced=${reduced} units=${units(node).length}`,
+            )
+            controls.destroy()
+        })
+
+        stage.replaceChildren()
+
+        const failed = checks.filter((passed) => !passed).length
+        document.querySelector("#summary").textContent =
+            `RESULT ${failed === 0 ? "ALL PASS" : "FAILURES"} — ${checks.length - failed}/${checks.length} passed`
+        document.title = `linetxt ${failed === 0 ? "PASS" : `FAIL(${failed})`}`
+    </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "linetxt",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The $linetxt skill: typewriter, line-reveal, and serega gentle text reveals.",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "serve": "python3 -m http.server 4173"
+  }
+}

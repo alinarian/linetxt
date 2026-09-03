@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>linetxt</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./linetxt.css">
+    <style>
+        body {
+            display: grid;
+            min-height: 100vh;
+            margin: 0;
+            place-items: center;
+            color: #111;
+            background: #f5f5f2;
+            font-family: system-ui, sans-serif;
+        }
+
+        main {
+            display: grid;
+            justify-items: center;
+            gap: 2rem;
+            max-width: 40rem;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 7vw, 4rem);
+            letter-spacing: -0.04em;
+        }
+
+        nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+
+        button {
+            padding: 0.75rem 1rem;
+            border: 1px solid currentColor;
+            border-radius: 999px;
+            color: inherit;
+            background: transparent;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        button[aria-pressed="true"] {
+            color: #f5f5f2;
+            background: #111;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1 id="title">Tomorrow, and tomorrow, and tomorrow,
+Creeps in this petty pace from day to day,
+To the last syllable of recorded time</h1>
+
+        <nav>
+            <button type="button" data-type="typewriter" aria-pressed="false">typewriter</button>
+            <button type="button" data-type="line-reveal" aria-pressed="true">line-reveal</button>
+            <button type="button" data-type="gentle" aria-pressed="false">gentle</button>
+        </nav>
+    </main>
+
+    <script type="module">
+        import { linetxt } from "./linetxt.js"
+
+        const title = document.querySelector("#title")
+        const buttons = [...document.querySelectorAll("nav button")]
+        const text = title.textContent
+        let controls = null
+
+        function apply(type) {
+            controls?.destroy()
+            title.textContent = text
+            controls = linetxt(title, { type })
+
+            for (const button of buttons) {
+                button.setAttribute("aria-pressed", String(button.dataset.type === type))
+            }
+        }
+
+        for (const button of buttons) {
+            button.addEventListener("click", () => apply(button.dataset.type))
+        }
+
+        apply("line-reveal")
+    </script>
+</body>
+</html>

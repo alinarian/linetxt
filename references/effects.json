@@ -1,0 +1,114 @@
+{
+  "name": "linetxt",
+  "target": "per-character",
+  "description": "Three one-shot text reveals behind one entry point: typing, line-by-line rise, and the serega gentle per-character rise.",
+  "entry": {
+    "call": "linetxt(element, { type, ...parameters })",
+    "required": ["type"],
+    "types": ["typewriter", "line-reveal", "gentle"],
+    "no_default_type": "An unset or unknown type throws. The mode is chosen by the user, never inferred silently by the runtime.",
+    "invocation": ["$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle"]
+  },
+  "modes": {
+    "typewriter": {
+      "description": "Characters are revealed one after another in DOM order. Layout is final from the first frame; only opacity changes.",
+      "parameters": {
+        "charInterval": { "default": 45, "unit": "ms", "meaning": "Delay between adjacent characters" },
+        "charDuration": { "default": 0, "unit": "ms", "meaning": "Per-character fade length; 0 is a hard cut" },
+        "easing": { "default": "linear", "meaning": "Easing of the per-character fade" },
+        "initialDelay": { "default": 0, "unit": "ms" },
+        "caret": { "default": true, "meaning": "Blinking caret that follows the typing position" },
+        "caretPersist": { "default": false, "meaning": "Keep the caret after the last character" }
+      },
+      "keyframes": { "from": { "opacity": 0 }, "to": { "opacity": 1 } },
+      "delay_formula": "initialDelay + characterIndex * charInterval",
+      "caret": {
+        "layout": "Zero-width host span; the bar is an absolutely positioned pseudo-element, so caret movement never reflows text.",
+        "clock": "Position derives from the same start timestamp as the character reveal."
+      }
+    },
+    "line-reveal": {
+      "description": "Lines rise from below and fade in, one after another.",
+      "parameters": {
+        "stagger": { "default": 100, "unit": "ms", "meaning": "Delay between the start of adjacent lines" },
+        "duration": { "default": 600, "unit": "ms" },
+        "y": { "default": 16, "unit": "px", "meaning": "Starting offset below the final position" },
+        "easing": { "default": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+        "initialDelay": { "default": 0, "unit": "ms" },
+        "lineSource": { "default": "auto", "values": ["auto", "text", "visual"] }
+      },
+      "keyframes": {
+        "from": { "opacity": 0, "y_px": 16 },
+        "to": { "opacity": 1, "y_px": 0 }
+      },
+      "delay_formula": "initialDelay + lineIndex * stagger",
+      "line_detection": {
+        "text": "Split on newlines in the source text.",
+        "visual": "Group words by rendered offsetTop, so the grouping follows real wrapping at the current width.",
+        "auto": "text when the source contains newlines, otherwise visual.",
+        "single_line": "Resolves to one group and animates as a single element.",
+        "granularity": "Delays are applied per character unit, keyed by the unit's line. No block wrappers are inserted, so host formatting is untouched."
+      }
+    },
+    "gentle": {
+      "description": "The serega-gentle per-character rise, reused as-is.",
+      "source": "https://github.com/mishanaer/deslop/tree/main/serega/serega-gentle",
+      "source_effect_id": "per-character-rise",
+      "relationship": "Reuse of the published serega-gentle enter contract. When the host project installs the serega skill, import seregaGentle from it instead. Serega's looping phrase swap and exit phase are intentionally not reimplemented here.",
+      "parameters": {
+        "stagger": { "default": 15, "unit": "ms", "meaning": "Delay between adjacent characters" },
+        "duration": { "default": 500, "unit": "ms" },
+        "y": { "default": 15, "unit": "px" },
+        "easing": { "default": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+        "initialDelay": { "default": 0, "unit": "ms" }
+      },
+      "keyframes": {
+        "from": { "opacity": 0, "y_px": 15 },
+        "to": { "opacity": 1, "y_px": 0 }
+      },
+      "delay_formula": "initialDelay + characterIndex * stagger",
+      "stagger_order": "normal",
+      "blur": "never",
+      "exit": "none"
+    }
+  },
+  "shared": {
+    "splitting": "Grapheme clusters via Intl.Segmenter, with Array.from as the fallback.",
+    "grouping": "Character units are grouped into non-breaking inline-block word wrappers; trailing whitespace stays with the preceding word.",
+    "rise": "line-reveal and gentle share one rise implementation and differ only in what the delay is keyed to: line index versus character index.",
+    "accessibility": "The full text is the host aria-label; every split span is aria-hidden.",
+    "reduced_motion": "prefers-reduced-motion renders static text.",
+    "lifecycle": "play, stop, destroy, finished. destroy restores the original child nodes, aria-label, and classes."
+  },
+  "adapters": {
+    "waapi": {
+      "dependency": null,
+      "time_unit": "milliseconds",
+      "call": "element.animate(keyframes, { delay, duration, easing, fill: 'both' })",
+      "completion": "Await animation.finished, apply the final inline frame, then cancel the retained animation."
+    },
+    "motion": {
+      "dependency": "motion",
+      "import": "import { animate } from 'motion'",
+      "time_unit": "seconds",
+      "call": "animate(element, propertyKeyframes, { delay, duration, ease })",
+      "completion": "Await the returned controls and stop them during teardown."
+    },
+    "gsap": {
+      "dependency": "gsap",
+      "time_unit": "seconds",
+      "call": "Set the first frame with gsap.set, then tween with gsap.to and overwrite: 'auto'.",
+      "completion": "Resolve a Promise from onComplete and kill tweens during teardown."
+    }
+  },
+  "invariants": [
+    "The mode is supplied by the user; the runtime throws rather than defaulting.",
+    "Preserve the application's copy and presentation styles.",
+    "Split per grapheme cluster, group into non-breaking word wrappers, wrap only between words.",
+    "Expose the full text as the host aria-label and hide split spans from assistive technology.",
+    "Render static text when reduced motion is preferred.",
+    "Typing must not reflow text: reveal with opacity, never with insertion.",
+    "Never animate blur.",
+    "Do not add an exit animation unless the user asks for one."
+  ]
+}
