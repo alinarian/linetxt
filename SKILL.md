@@ -130,10 +130,6 @@ in normal left-to-right DOM order.
 | `easing` | `"cubic-bezier(0.2, 0.8, 0.2, 1)"` | Easing of the rise |
 | `initialDelay` | `0` | Milliseconds to wait before the first character |
 
-The contract is frozen in the module as `GENTLE_CONTRACT` and is the source of
-the defaults above. Leave it alone unless the user asks to retune the motion;
-changing it silently is a regression.
-
 Rules this mode keeps:
 
 - **Never animate blur.** Crisp glyphs are the defining property of the effect.
