@@ -51,16 +51,6 @@ linetxt(document.querySelector("#headline"), { type: "line-reveal" })
 `options.type` is required — `linetxt()` throws rather than choosing a reveal
 on your behalf.
 
-## The gentle contract
-
-The `gentle` mode is built on a fixed motion contract: opacity `0 → 1`,
-translate Y `15px → 0`, `500ms`, `15ms` stagger,
-`cubic-bezier(0.2, 0.8, 0.2, 1)`, no blur, no exit. Those values live in
-`GENTLE_CONTRACT` and are covered by a test so they cannot drift.
-
-The mode is enter-only. Looping phrase swaps and exit phases are out of scope
-for this skill.
-
 ## Example page
 
 [assets/waapi/example.html](./assets/waapi/example.html) is a minimal
