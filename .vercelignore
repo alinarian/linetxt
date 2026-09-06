@@ -1,5 +1,0 @@
-# Skill sources are published so the demo can import the module directly.
-# Only local scratch files are excluded.
-node_modules
-.DS_Store
-.vercel/

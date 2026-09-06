@@ -63,44 +63,21 @@ serega itself is not vendored here. If your project installs the serega skill,
 import `seregaGentle` from it and use that directly — it also supports looping
 phrase swaps, which this skill does not reimplement.
 
-## Demo
+## Example page
 
-The landing page at [index.html](./index.html) is a single interactive
-playground: switch between the three modes, switch the sample text, and drive
-every documented parameter from live controls. The code block under the stage
-rewrites itself as you go and prints only what differs from the defaults, so it
-is always the shortest call that reproduces what is on screen.
-
-Sample texts are Shakespeare, public domain, each attributed under the stage
-and each picked for the case it exercises: a single line, exactly three lines,
-a short accent phrase, and copy long enough to wrap. Every sample works in
-every mode, so you can compare them directly.
-
-The specimen is put in the DOM as plain text before each reveal, so the page
-reads correctly before — and without — any animation.
+[assets/waapi/example.html](./assets/waapi/example.html) is a minimal
+standalone page that calls each mode directly, with no build step and nothing
+but the two runtime files.
 
 ```bash
-python3 -m http.server 4173
+npm run serve
 ```
 
-| Path | What it is |
-| --- | --- |
-| `/` | The demo and playground |
-| `/tests/browser/` | The browser test suite |
-| `/assets/waapi/example.html` | Minimal standalone page |
+Then open <http://localhost:4173/assets/waapi/example.html>.
 
-### Deploy to Vercel
-
-The repo is a static site with no build step; `vercel.json` already disables
-the build and install commands and serves the root directory.
-
-```bash
-npx vercel deploy --prod
-```
-
-The first run prompts you to log in and link the project. To deploy from Git
-instead, import the repository at <https://vercel.com/new> and accept the
-detected settings — `vercel.json` supplies everything needed.
+An interactive playground with live controls for every parameter lives in a
+separate project, `linetxt-demo`, so this repository stays limited to the
+skill itself.
 
 ## Tests
 
