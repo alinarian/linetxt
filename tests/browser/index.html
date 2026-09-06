@@ -348,7 +348,7 @@
             controls.destroy()
         })
 
-        await scenario("gentle, serega contract", async () => {
+        await scenario("gentle, motion contract", async () => {
             const text = "Fast and fluid."
             const node = host(text)
             const controls = linetxt(node, animated({ type: "gentle" }))
@@ -357,7 +357,7 @@
             const expected = String(units(node).map((_, index) => index * 15))
             check("gentle staggers 15ms per character", String(delays(node)) === expected, String(delays(node)))
             check("gentle runs for 500ms", timing(node).duration === 500, String(timing(node).duration))
-            check("gentle uses the serega easing", timing(node).easing === "cubic-bezier(0.2, 0.8, 0.2, 1)", String(timing(node).easing))
+            check("gentle uses the contract easing", timing(node).easing === "cubic-bezier(0.2, 0.8, 0.2, 1)", String(timing(node).easing))
             check("gentle starts 15px below", settledAt(node, 15), units(node)[0].style.transform)
 
             const frames = units(node)[0].getAnimations()[0].effect.getKeyframes()
@@ -374,7 +374,7 @@
         })
 
         await scenario("gentle, long multiline copy", async () => {
-            const text = "Serega gentle is safe for long copy because it only animates\ntransform and opacity across every character of the phrase."
+            const text = "Gentle is safe for long copy because it only animates\ntransform and opacity across every character of the phrase."
             const node = host(text)
             const controls = linetxt(node, animated({ type: "gentle" }))
             await tick()

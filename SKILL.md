@@ -1,6 +1,6 @@
 ---
 name: linetxt
-description: Apply one of three text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, or the serega gentle per-character rise. Invoked as "$linetxt typewriter", "$linetxt line-reveal", or "$linetxt gentle". Ask the user which mode to use when the request does not name one; never pick a mode silently.
+description: Apply one of three text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, or a gentle per-character rise. Invoked as "$linetxt typewriter", "$linetxt line-reveal", or "$linetxt gentle". Ask the user which mode to use when the request does not name one; never pick a mode silently.
 ---
 
 # linetxt
@@ -14,14 +14,14 @@ The mode is a required input. Do not pick one silently.
 
 1. Read the request. If it names a mode — `$linetxt typewriter`, or a phrasing
    that is unambiguous on its own (“make it type out”, “reveal these lines one
-   by one”, “use the gentle serega rise”) — use that mode.
+   by one”, “use the gentle rise”) — use that mode.
 2. Otherwise ask the user before touching any code:
 
    ```text
    animation type:
      1. typewriter   — types the text out character by character
      2. line-reveal  — lines rise from below, 100ms apart
-     3. gentle       — the serega per-character rise
+     3. gentle       — a soft per-character rise
    ```
 
 The runtime enforces this too: `linetxt()` throws when `options.type` is
@@ -31,7 +31,7 @@ missing or unknown, so a forgotten mode fails loudly instead of defaulting.
 | --- | --- |
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
-| `gentle` | A polished, ready-made per-character reveal from serega |
+| `gentle` | A polished, ready-made per-character reveal |
 
 ## Workflow
 
@@ -117,9 +117,8 @@ linetxt(element, { type: "line-reveal", stagger: 100 })
 
 ## Mode 3 — gentle
 
-The per-character rise from
-[serega-gentle](https://github.com/mishanaer/deslop/tree/main/serega/serega-gentle),
-reused as-is: opacity `0 → 1`, translate Y `15px → 0`, duration `500ms`,
+A per-character rise on a fixed motion contract: opacity `0 → 1`,
+translate Y `15px → 0`, duration `500ms`,
 stagger `15ms`, easing `cubic-bezier(0.2, 0.8, 0.2, 1)`, applied per character
 in normal left-to-right DOM order.
 
@@ -131,11 +130,11 @@ in normal left-to-right DOM order.
 | `easing` | `"cubic-bezier(0.2, 0.8, 0.2, 1)"` | Easing of the rise |
 | `initialDelay` | `0` | Milliseconds to wait before the first character |
 
-The published contract is frozen in the module as `GENTLE_CONTRACT` and is the
-source of the defaults above. Leave it alone unless the user asks to retune the
-motion; changing it silently is a regression against serega.
+The contract is frozen in the module as `GENTLE_CONTRACT` and is the source of
+the defaults above. Leave it alone unless the user asks to retune the motion;
+changing it silently is a regression.
 
-Rules inherited from serega-gentle, all of which this mode keeps:
+Rules this mode keeps:
 
 - **Never animate blur.** Crisp glyphs are the defining property of the effect.
 - **No exit.** This is a one-shot reveal; do not invent an exit animation.
@@ -146,13 +145,8 @@ Rules inherited from serega-gentle, all of which this mode keeps:
 differ only in what the delay is keyed to — the character index for `gentle`,
 the line index for `line-reveal`.
 
-**If the host project already has the serega skill installed** (for example in
-`.agents/skills/serega-gentle/`), import `seregaGentle` from there and use it
-directly instead of this mode. This mode exists so the reveal is available in
-projects that do not install serega; it is not a replacement for it. Serega
-additionally supports looping phrase swaps with an exit phase, which this mode
-deliberately does not reimplement — reach for serega itself when a swap is
-needed.
+This mode is enter-only. Looping phrase swaps and exit phases are out of scope;
+if a swap is needed, drive it outside this skill.
 
 ```js
 linetxt(element, { type: "gentle" })
@@ -186,7 +180,7 @@ handling, and the playback lifecycle are already shared.
 - Confirm line-reveal groups match the rendered lines at the current width, and
   that adjacent lines start `stagger` milliseconds apart.
 - Confirm single-line text animates as one group.
-- Confirm `gentle` still matches the serega contract: `500ms`, `15ms`, `15px`,
+- Confirm `gentle` still matches its contract: `500ms`, `15ms`, `15px`,
   `cubic-bezier(0.2, 0.8, 0.2, 1)`, and no blur at any frame.
 - Confirm spaces, punctuation, emoji, and non-Latin graphemes remain intact.
 - Confirm multiline text wraps only between words, never inside a word.

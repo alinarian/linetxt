@@ -50,7 +50,7 @@ test("groupByOffsetTop never regresses to a previous group", () => {
     assert.deepEqual(groupByOffsetTop([0, 24, 23.5, 48]), [0, 1, 1, 2])
 })
 
-test("gentle reuses the published serega-gentle enter contract", () => {
+test("gentle keeps its frozen enter contract", () => {
     assert.deepEqual({ ...GENTLE_CONTRACT }, {
         duration: 500,
         stagger: 15,

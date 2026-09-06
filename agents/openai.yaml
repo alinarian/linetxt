@@ -1,4 +1,4 @@
 interface:
   display_name: "linetxt"
-  short_description: "Reveal text by typing, line by line, or with the serega gentle rise"
+  short_description: "Reveal text by typing, line by line, or with a gentle rise"
   default_prompt: "Use $linetxt to reveal this text. Ask me which animation to apply: typewriter, line-reveal, or gentle."

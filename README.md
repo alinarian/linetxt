@@ -6,7 +6,7 @@ A skill for text reveal animations. One entry point, three modes.
 | --- | --- |
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
-| `gentle` | A polished, ready-made per-character reveal from serega |
+| `gentle` | A polished, ready-made per-character reveal |
 
 Read [SKILL.md](./SKILL.md) for the full parameter reference.
 
@@ -51,17 +51,15 @@ linetxt(document.querySelector("#headline"), { type: "line-reveal" })
 `options.type` is required — `linetxt()` throws rather than choosing a reveal
 on your behalf.
 
-## Relationship to serega
+## The gentle contract
 
-The `gentle` mode reuses the motion contract published by
-[serega-gentle](https://github.com/mishanaer/deslop/tree/main/serega/serega-gentle):
-opacity `0 → 1`, translate Y `15px → 0`, `500ms`, `15ms` stagger,
+The `gentle` mode is built on a fixed motion contract: opacity `0 → 1`,
+translate Y `15px → 0`, `500ms`, `15ms` stagger,
 `cubic-bezier(0.2, 0.8, 0.2, 1)`, no blur, no exit. Those values live in
 `GENTLE_CONTRACT` and are covered by a test so they cannot drift.
 
-serega itself is not vendored here. If your project installs the serega skill,
-import `seregaGentle` from it and use that directly — it also supports looping
-phrase swaps, which this skill does not reimplement.
+The mode is enter-only. Looping phrase swaps and exit phases are out of scope
+for this skill.
 
 ## Example page
 
@@ -81,7 +79,7 @@ skill itself.
 
 ## Tests
 
-Pure logic — grapheme splitting, line grouping, the serega contract — runs in
+Pure logic — grapheme splitting, line grouping, the gentle contract — runs in
 Node with no dependencies:
 
 ```bash

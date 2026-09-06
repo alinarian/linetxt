@@ -1,7 +1,7 @@
 {
   "name": "linetxt",
   "target": "per-character",
-  "description": "Three one-shot text reveals behind one entry point: typing, line-by-line rise, and the serega gentle per-character rise.",
+  "description": "Three one-shot text reveals behind one entry point: typing, line-by-line rise, and a gentle per-character rise.",
   "entry": {
     "call": "linetxt(element, { type, ...parameters })",
     "required": ["type"],
@@ -51,10 +51,8 @@
       }
     },
     "gentle": {
-      "description": "The serega-gentle per-character rise, reused as-is.",
-      "source": "https://github.com/mishanaer/deslop/tree/main/serega/serega-gentle",
-      "source_effect_id": "per-character-rise",
-      "relationship": "Reuse of the published serega-gentle enter contract. When the host project installs the serega skill, import seregaGentle from it instead. Serega's looping phrase swap and exit phase are intentionally not reimplemented here.",
+      "description": "A gentle per-character rise on a frozen motion contract.",
+      "relationship": "Enter only. Looping phrase swaps and exit phases are intentionally out of scope for this skill.",
       "parameters": {
         "stagger": { "default": 15, "unit": "ms", "meaning": "Delay between adjacent characters" },
         "duration": { "default": 500, "unit": "ms" },

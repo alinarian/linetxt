@@ -23,10 +23,9 @@ const LINE_REVEAL_DEFAULTS = Object.freeze({
     lineSource: "auto",
 })
 
-// The published serega-gentle motion contract, reused verbatim:
-// https://github.com/mishanaer/deslop/tree/main/serega/serega-gentle
-// Enter only. serega-gentle never animates blur and never adds an exit to a
-// one-shot reveal, so neither does this mode.
+// The frozen gentle motion contract.
+// Enter only. This mode never animates blur and never adds an exit to a
+// one-shot reveal.
 export const GENTLE_CONTRACT = Object.freeze({
     duration: 500,
     stagger: 15,
@@ -332,8 +331,8 @@ export function linetxt(element, options = {}) {
 
     /**
      * Shared rise-and-fade reveal. line-reveal keys the delay to the unit's
-     * line; gentle keys it to the unit's index, which is the serega-gentle
-     * per-character stagger.
+     * line; gentle keys it to the unit's index, which is the per-character
+     * stagger.
      */
     async function runRise(built, signal, delayFor, motion) {
         const { units } = built
