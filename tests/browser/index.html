@@ -101,7 +101,15 @@
             .map((unit) => unit.getAnimations()[0]?.effect.getTiming().delay ?? null)
         const timing = (node) => units(node)[0]?.getAnimations()[0]?.effect.getTiming() ?? {}
         const sortedDelays = (node) => [...new Set(delays(node))].sort((a, b) => a - b)
-        const animations = (node) => units(node).flatMap((unit) => unit.getAnimations())
+        const animations = (node) => [...node.querySelectorAll(".linetxt__unit, .linetxt__pixels")]
+            .flatMap((target) => target.getAnimations())
+        const pixelLayer = (node) => node.querySelector(".linetxt__pixels")
+
+        /** Waits for the pixel layer, which appears once web fonts settle. */
+        async function pixelLayerReady(node) {
+            for (let attempt = 0; attempt < 40 && !pixelLayer(node); attempt += 1) await tick()
+            return pixelLayer(node)
+        }
 
         /**
          * Drives a reveal to completion without waiting on the wall clock.
@@ -161,8 +169,8 @@
             check("throws when no mode is given", missing instanceof TypeError, String(missing))
             check("throws on an unknown mode", unknown instanceof TypeError, String(unknown))
             check(
-                "the error names the three valid modes",
-                /typewriter, line-reveal, gentle/.test(missing?.message ?? ""),
+                "the error names the four valid modes",
+                /typewriter, line-reveal, gentle, pixel/.test(missing?.message ?? ""),
                 missing?.message,
             )
         })
@@ -383,6 +391,117 @@
             check("gentle handles long multiline copy", count > 100, `${count} units`)
             check("gentle staggers to the last character", delays(node)[count - 1] === (count - 1) * 15, String(delays(node)[count - 1]))
             check("gentle preserves the line break", node.querySelectorAll("br").length === 1, String(node.querySelectorAll("br").length))
+            controls.destroy()
+        })
+
+        await scenario("pixel, single line", async () => {
+            const text = "Assembled from pixels"
+            // Every mode splits the host into per-character inline-blocks,
+            // so the reference is the same text settled through another mode:
+            // the overlay must add nothing to that box.
+            const plain = host(text)
+            const plainControls = linetxt(plain, animated({ type: "gentle" }))
+            await settle(plain, plainControls)
+            const reference = plain.getBoundingClientRect()
+            plainControls.destroy()
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "pixel" }))
+            await tick()
+
+            check("pixel splits every grapheme", units(node).length === text.length, String(units(node).length))
+            check("pixel starts with transparent text", units(node).every((unit) => getComputedStyle(unit).opacity === "0"))
+
+            const layer = await pixelLayerReady(node)
+            check("pixel renders a preview layer inside the host", layer instanceof HTMLCanvasElement && layer.parentElement === node)
+            check("the preview layer is hidden from assistive tech", layer?.getAttribute("aria-hidden") === "true")
+            check("the preview layer is positioned out of flow", layer && getComputedStyle(layer).position === "absolute")
+            check("the host is positioned for the overlay", getComputedStyle(node).position === "relative", getComputedStyle(node).position)
+            check("the preview layer bleeds past the text box", layer && parseFloat(layer.style.left) < 0 && parseFloat(layer.style.width) > node.clientWidth)
+            check("the preview layer has painted pixels", layer && layer.getContext("2d").getImageData(0, 0, layer.width, layer.height).data.some((value, index) => index % 4 === 3 && value > 0))
+
+            const during = node.getBoundingClientRect()
+            check(
+                "pixel causes no layout shift",
+                during.width === reference.width && during.height === reference.height,
+                `${reference.width}x${reference.height} → ${during.width}x${during.height}`,
+            )
+
+            const clock = layer?.getAnimations()[0]
+            check("the preview clock spans preview + reveal", clock?.effect.getTiming().duration === 1350, String(clock?.effect.getTiming().duration))
+            check("text waits for the whole pixel preview", delays(node).every((delay) => delay === 900), String(sortedDelays(node)))
+            check("text resolves over revealDuration", timing(node).duration === 450, String(timing(node).duration))
+            check("pixel uses the documented easing", timing(node).easing === "cubic-bezier(0.2, 0.8, 0.2, 1)", String(timing(node).easing))
+
+            await settle(node, controls)
+            const after = node.getBoundingClientRect()
+            check("pixel ends at the same size", after.width === reference.width && after.height === reference.height, `${after.width}x${after.height}`)
+            check("pixel removes the preview layer when done", pixelLayer(node) === null)
+            check("pixel ends fully opaque", units(node).every((unit) => unit.style.opacity === "1"))
+            check("pixel leaves no animation behind", animations(node).length === 0, String(animations(node).length))
+            check("pixel keeps the text intact", node.textContent === text, node.textContent)
+
+            controls.destroy()
+            check("destroy restores the host position", node.style.position === "", JSON.stringify(node.style.position))
+        })
+
+        await scenario("pixel, custom timing", async () => {
+            const node = host("Tuned")
+            const controls = linetxt(node, animated({
+                type: "pixel",
+                previewDuration: 300,
+                revealDelay: 100,
+                revealDuration: 200,
+                pixelSize: 4,
+                easing: "ease-in-out",
+            }))
+            await tick()
+            const layer = await pixelLayerReady(node)
+
+            const clock = layer?.getAnimations()[0]
+            check("custom timing sets the clock length", clock?.effect.getTiming().duration === 600, String(clock?.effect.getTiming().duration))
+            check("revealDelay holds the pixelated text", delays(node).every((delay) => delay === 400), String(sortedDelays(node)))
+            check("custom revealDuration is forwarded", timing(node).duration === 200, String(timing(node).duration))
+            check("custom easing is forwarded", timing(node).easing === "ease-in-out", String(timing(node).easing))
+
+            await settle(node, controls)
+            controls.destroy()
+        })
+
+        await scenario("pixel, multiline and short text", async () => {
+            const text = "Line one\nLine two that is longer"
+            const node = host(text)
+            const controls = linetxt(node, animated({ type: "pixel" }))
+            await tick()
+            const layer = await pixelLayerReady(node)
+
+            check("pixel preserves the line break", node.querySelectorAll("br").length === 1, String(node.querySelectorAll("br").length))
+            check("the preview layer covers the whole multiline box", layer && parseFloat(layer.style.height) > node.clientHeight)
+            await settle(node, controls)
+            check("multiline pixel text stays intact", node.textContent === text.replaceAll("\n", ""), JSON.stringify(node.textContent))
+            controls.destroy()
+
+            const tiny = host("I")
+            const tinyControls = linetxt(tiny, animated({ type: "pixel" }))
+            await tick()
+            check("a single character still gets a preview layer", (await pixelLayerReady(tiny)) !== null)
+            await settle(tiny, tinyControls)
+            check("a single character resolves to text", tiny.textContent === "I" && units(tiny)[0]?.style.opacity === "1")
+            tinyControls.destroy()
+        })
+
+        await scenario("pixel, stop and replay", async () => {
+            const node = host("Stop me")
+            const controls = linetxt(node, animated({ type: "pixel" }))
+            await tick()
+            await pixelLayerReady(node)
+
+            controls.stop()
+            check("stop renders static text without the preview layer", node.textContent === "Stop me" && pixelLayer(node) === null && units(node).length === 0)
+
+            controls.play()
+            await tick()
+            check("play restarts the pixel reveal", units(node).length === 7 && (await pixelLayerReady(node)) !== null, String(units(node).length))
+            await settle(node, controls)
             controls.destroy()
         })
 

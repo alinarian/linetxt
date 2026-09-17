@@ -1,12 +1,13 @@
 # linetxt
 
-A skill for text reveal animations. One entry point, three modes.
+A skill for text reveal animations. One entry point, four modes.
 
 | Mode | When to use it |
 | --- | --- |
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
+| `pixel` | The text is assembled from animated pixels, then resolves into crisp glyphs |
 
 Read [SKILL.md](./SKILL.md) for the full parameter reference.
 
@@ -31,6 +32,10 @@ Apply $linetxt line-reveal to this heading.
 
 ```text
 Apply $linetxt gentle to this heading.
+```
+
+```text
+Apply $linetxt pixel to this heading.
 ```
 
 If you do not name a mode, the agent asks which one you want rather than
@@ -69,8 +74,8 @@ skill itself.
 
 ## Tests
 
-Pure logic — grapheme splitting, line grouping, the gentle contract — runs in
-Node with no dependencies:
+Pure logic — grapheme splitting, line grouping, the gentle contract, easing
+parsing, and pixel coverage sampling — runs in Node with no dependencies:
 
 ```bash
 npm test
