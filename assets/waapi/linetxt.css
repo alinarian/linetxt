@@ -54,3 +54,18 @@
         animation: none;
     }
 }
+
+/* Pixel mode: the host becomes a stacking context so the preview layer can
+   sit behind the text (negative z-index) yet above the host's own background. */
+.linetxt[data-linetxt="pixel"] {
+    isolation: isolate;
+}
+
+/* The pixel preview layer. Absolutely positioned over the host's padding box,
+   so it never takes part in layout; its size is set inline to match. */
+.linetxt__pixels {
+    position: absolute;
+    z-index: -1;
+    display: block;
+    pointer-events: none;
+}

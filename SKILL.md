@@ -1,6 +1,6 @@
 ---
 name: linetxt
-description: Apply one of three text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, or a gentle per-character rise. Invoked as "$linetxt typewriter", "$linetxt line-reveal", or "$linetxt gentle". Ask the user which mode to use when the request does not name one; never pick a mode silently.
+description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal where each glyph resolves from a coarse block pixel to crisp text in a left-to-right sweep. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
 ---
 
 # linetxt
@@ -14,7 +14,7 @@ The mode is a required input. Do not pick one silently.
 
 1. Read the request. If it names a mode — `$linetxt typewriter`, or a phrasing
    that is unambiguous on its own (“make it type out”, “reveal these lines one
-   by one”, “use the gentle rise”) — use that mode.
+   by one”, “use the gentle rise”, “assemble it from pixels”) — use that mode.
 2. Otherwise ask the user before touching any code:
 
    ```text
@@ -22,6 +22,7 @@ The mode is a required input. Do not pick one silently.
      1. typewriter   — types the text out character by character
      2. line-reveal  — lines rise from below, 100ms apart
      3. gentle       — a soft per-character rise
+     4. pixel        — glyphs resolve from coarse blocks to crisp text, left to right
    ```
 
 The runtime enforces this too: `linetxt()` throws when `options.type` is
@@ -32,6 +33,7 @@ missing or unknown, so a forgotten mode fails loudly instead of defaulting.
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
+| `pixel` | A digital entrance: each glyph sharpens from pixel blocks in hard steps, sweeping left to right |
 
 ## Workflow
 
@@ -148,6 +150,74 @@ if a swap is needed, drive it outside this skill.
 linetxt(element, { type: "gentle" })
 ```
 
+## Mode 4 — pixel
+
+Every glyph is visible from the first frame as a coarse pixel block of its
+own shape. Sweeping from left to right, each glyph's pixel cell halves its
+size in hard steps until it is swapped for the crisp glyph. The sequence per
+glyph is `one block → 2×2 blocks → 4×4 → … → finest pixel level → clean glyph`,
+and because glyphs start a stagger apart, the leading letters are crisp while
+the trailing ones are still large blocks. No real glyph is visible before its
+pixel steps have finished.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `stagger` | `"auto"` | Milliseconds between adjacent glyphs starting to resolve; `"auto"` spreads the sweep over 900ms, clamped to 12–140ms per glyph |
+| `stepDuration` | `90` | Milliseconds each pixel level is held |
+| `pixelSize` | `"auto"` | Finest pixel cell in CSS pixels; `"auto"` is the font size ÷ 16, at least 2 |
+| `revealDelay` | `0` | Milliseconds to hold the finest pixel level before the cut to the clean glyph |
+| `easing` | `"linear"` | Easing of a glyph's progress through its levels; `linear` holds every level equally |
+| `initialDelay` | `0` | Milliseconds to wait before the first frame |
+
+A single word at 130ms stagger and 90ms steps reads as the classic
+letter-by-letter resolve; the automatic stagger keeps a whole paragraph to a
+wave of about a second.
+
+How the pixel levels are built:
+
+- The text is split and laid out exactly as in the other modes, with every
+  unit transparent. The final position, size, wrapping, and alignment are
+  therefore fixed from the first frame, and nothing shifts when a glyph cuts
+  to text.
+- Each glyph is rasterized into an offscreen canvas at its own DOM box, using
+  the host's computed font, weight, style, size, colour, and `text-transform`.
+  Its ink bounds are measured, and a grid anchored to those bounds is
+  stretched to tile them exactly at every level: the coarsest level is one
+  block the size of the glyph, the next 2×2, and so on, halving until the
+  cell would drop below `pixelSize`.
+- A cell is drawn when 45% of it is ink (30% for the single-block level).
+  Cells that fall short are dropped, so coarse levels read as digital
+  fragments of the letter rather than as a filled rectangle.
+- A transparent canvas overlay sits over the host's padding box, absolutely
+  positioned and `pointer-events: none`, so it never takes part in layout.
+  Each frame fills every unresolved glyph's pixel blocks at its current level in
+  the host's text colour; blocks are solid, with no fading or motion.
+- Glyph `n` (whitespace excluded) starts resolving at `n × stagger`, holds
+  each level for `stepDuration`, holds the finest level for `revealDelay`,
+  then cuts to the real glyph with a zero-duration opacity animation. The
+  overlay is removed when the last glyph is crisp, leaving plain DOM text.
+- The overlay's animation is the clock for the whole preview; the canvas is
+  repainted from its `currentTime` every frame. Pausing, finishing, or
+  cancelling that animation drives the canvas exactly like the unit
+  animations, so `stop()`, `destroy()`, `finished`, and hidden-tab throttling
+  behave as in the other modes.
+- The look (coarsest cell, automatic sizes, thresholds, sweep budget) lives in
+  the frozen `PIXEL_TUNING` object in `linetxt.js`. The effect is fully
+  deterministic: the same text renders the same frames every time.
+
+Edge cases: a single character resolves through its own levels; long copy
+uses a faster automatic stagger so the sweep still completes in about a
+second; multiline and wrapped text continue the sweep across lines in reading
+order. When the document has no 2D canvas, or the host has no size, the text
+is simply shown. Reduced motion renders static text as in every mode.
+
+The host receives `position: relative` only when it was `static`, so the
+overlay has a containing block; `destroy()` restores the inline value.
+
+```js
+linetxt(element, { type: "pixel", stagger: 130, stepDuration: 90 })
+```
+
 ## Host and accessibility
 
 - Keep the host application responsible for typography and presentation.
@@ -157,6 +227,8 @@ linetxt(element, { type: "gentle" })
   hidden from assistive technology.
 - `prefers-reduced-motion: reduce` renders static text. Pass
   `respectReducedMotion: false` only when the user asks for it.
+- The pixel preview layer is a `canvas.linetxt__pixels` child of the host,
+  `aria-hidden`, absolutely positioned, and removed when the reveal finishes.
 - Start a reveal when it enters the viewport if a page runs several of them.
 - `destroy()` restores the original child nodes, `aria-label`, and classes.
 
@@ -180,6 +252,10 @@ handling, and the playback lifecycle are already shared.
   `cubic-bezier(0.2, 0.8, 0.2, 1)`, and no blur at any frame.
 - Confirm spaces, punctuation, emoji, and non-Latin graphemes remain intact.
 - Confirm multiline text wraps only between words, never inside a word.
+- Confirm `pixel` shows every glyph as blocks from the first frame, that
+  glyphs sharpen in hard steps from left to right, that no real glyph is
+  visible before its pixel steps have finished, and that the finished text is crisp
+  with the overlay removed.
 - Confirm no exit animation runs unless explicitly requested.
 
 ## Examples
@@ -194,4 +270,8 @@ Apply $linetxt line-reveal to this heading.
 
 ```text
 Apply $linetxt gentle to this heading.
+```
+
+```text
+Apply $linetxt pixel to this heading.
 ```

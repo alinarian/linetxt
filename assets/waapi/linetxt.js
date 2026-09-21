@@ -2,8 +2,9 @@ const HOST_CLASS = "linetxt"
 const UNIT_CLASS = "linetxt__unit"
 const WORD_CLASS = "linetxt__word"
 const CARET_CLASS = "linetxt__caret"
+const PIXELS_CLASS = "linetxt__pixels"
 
-export const TYPES = Object.freeze(["typewriter", "line-reveal", "gentle"])
+export const TYPES = Object.freeze(["typewriter", "line-reveal", "gentle", "pixel"])
 
 const TYPEWRITER_DEFAULTS = Object.freeze({
     charInterval: 45,
@@ -36,6 +37,43 @@ export const GENTLE_CONTRACT = Object.freeze({
 const GENTLE_DEFAULTS = Object.freeze({
     ...GENTLE_CONTRACT,
     initialDelay: 0,
+})
+
+const PIXEL_DEFAULTS = Object.freeze({
+    stagger: "auto",
+    stepDuration: 90,
+    pixelSize: "auto",
+    revealDelay: 0,
+    easing: "linear",
+    initialDelay: 0,
+})
+
+/**
+ * Look-and-feel constants of the pixel mode. They shape the pixel blocks rather
+ * than its timing, so they are tuning values rather than per-call options.
+ * Adjust them here when the whole effect should change.
+ */
+export const PIXEL_TUNING = Object.freeze({
+    /** The coarsest pixel cell, in em: one block per glyph. */
+    coarsestCell: 1.1,
+    /** Automatic finest cell is the font size divided by this. */
+    autoSizeDivisor: 16,
+    minPixelSize: 2,
+    /** Raster alpha (0–255) that counts as ink when measuring glyph bounds. */
+    inkAlpha: 40,
+    /** Automatic stagger spreads the sweep over this many milliseconds… */
+    autoSweep: 900,
+    /** …but never faster or slower per character than these bounds. */
+    autoStaggerMin: 12,
+    autoStaggerMax: 140,
+    /** A cell is drawn when this share of it is glyph ink. Weak cells drop
+        out, which is what makes coarse levels read as digital fragments. */
+    inkThreshold: 0.45,
+    /** The single-block level uses this lower bar so every glyph is at least
+        hinted at before its pixel steps start. */
+    coarseThreshold: 0.3,
+    /** Raster oversampling, capped by the device pixel ratio. */
+    sampleScale: 2,
 })
 
 /**
@@ -85,6 +123,195 @@ export function groupByOffsetTop(tops, tolerance = 1) {
     }
 
     return lines
+}
+
+const NAMED_EASINGS = Object.freeze({
+    linear: null,
+    ease: [0.25, 0.1, 0.25, 1],
+    "ease-in": [0.42, 0, 1, 1],
+    "ease-out": [0, 0, 0.58, 1],
+    "ease-in-out": [0.42, 0, 0.58, 1],
+})
+
+/**
+ * Builds a CSS cubic-bezier timing function as a plain `(x) => y` so the
+ * canvas-driven pixel preview can share the easing strings the other modes
+ * hand to the Web Animations API.
+ */
+export function cubicBezier(x1, y1, x2, y2) {
+    const sampleX = (t) => ((1 - 3 * x2 + 3 * x1) * t + (3 * x2 - 6 * x1)) * t * t + 3 * x1 * t
+    const sampleY = (t) => ((1 - 3 * y2 + 3 * y1) * t + (3 * y2 - 6 * y1)) * t * t + 3 * y1 * t
+    const slopeX = (t) => 3 * (1 - 3 * x2 + 3 * x1) * t * t + 2 * (3 * x2 - 6 * x1) * t + 3 * x1
+
+    return (x) => {
+        if (x <= 0) return 0
+        if (x >= 1) return 1
+
+        // Newton–Raphson first, bisection when the slope is too flat for it.
+        let t = x
+        for (let step = 0; step < 8; step += 1) {
+            const error = sampleX(t) - x
+            if (Math.abs(error) < 1e-6) return sampleY(t)
+            const slope = slopeX(t)
+            if (Math.abs(slope) < 1e-6) break
+            t -= error / slope
+        }
+
+        let low = 0
+        let high = 1
+        while (high - low > 1e-6) {
+            t = (low + high) / 2
+            if (sampleX(t) < x) low = t
+            else high = t
+        }
+
+        return sampleY(t)
+    }
+}
+
+/**
+ * Parses a CSS easing keyword or `cubic-bezier(...)` into a function.
+ * Anything else (for example `steps()`) degrades to linear.
+ *
+ * @param {string} value
+ */
+export function parseEasing(value) {
+    const name = String(value ?? "linear").trim().toLowerCase()
+    if (Object.hasOwn(NAMED_EASINGS, name)) {
+        const points = NAMED_EASINGS[name]
+        return points ? cubicBezier(...points) : (x) => x
+    }
+
+    const match = /^cubic-bezier\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/u.exec(name)
+    if (match) {
+        const [x1, y1, x2, y2] = match.slice(1).map(Number)
+        if ([x1, y1, x2, y2].every(Number.isFinite)) {
+            return cubicBezier(Math.min(1, Math.max(0, x1)), y1, Math.min(1, Math.max(0, x2)), y2)
+        }
+    }
+
+    return (x) => x
+}
+
+/**
+ * Resolves the pixel mode's finest pixel cell in CSS pixels. `"auto"`
+ * derives it from the font size so the same call looks right on a caption
+ * and a hero.
+ *
+ * @param {"auto"|number} pixelSize
+ * @param {number} fontSize
+ */
+export function resolvePixelSize(pixelSize, fontSize) {
+    if (pixelSize === "auto" || pixelSize == null) {
+        const auto = Math.round((Number(fontSize) || 0) / PIXEL_TUNING.autoSizeDivisor)
+        return Math.max(PIXEL_TUNING.minPixelSize, auto)
+    }
+
+    const size = Number(pixelSize)
+    return Number.isFinite(size) && size >= 1 ? size : PIXEL_TUNING.minPixelSize
+}
+
+/**
+ * The pixel cell sizes a glyph passes through, coarsest first: one block
+ * per glyph, halving each step, never finer than `finest`.
+ *
+ * @param {number} fontSize
+ * @param {number} finest
+ */
+export function pixelLevels(fontSize, finest) {
+    const levels = []
+    let cell = Math.max(finest, (Number(fontSize) || 0) * PIXEL_TUNING.coarsestCell)
+    do {
+        levels.push(cell)
+        cell /= 2
+    } while (cell >= finest)
+    return levels
+}
+
+/**
+ * Milliseconds between adjacent characters starting to resolve. `"auto"`
+ * spreads the sweep over a fixed budget so a word and a paragraph both read
+ * as one left-to-right wave.
+ *
+ * @param {"auto"|number} stagger
+ * @param {number} count Characters taking part in the sweep
+ */
+export function resolveStagger(stagger, count) {
+    if (stagger === "auto" || stagger == null) {
+        if (count <= 1) return 0
+        const spread = PIXEL_TUNING.autoSweep / (count - 1)
+        return Math.min(PIXEL_TUNING.autoStaggerMax, Math.max(PIXEL_TUNING.autoStaggerMin, spread))
+    }
+
+    return Math.max(0, Number(stagger) || 0)
+}
+
+/**
+ * Averages the alpha channel of an RGBA raster over a grid of square cells,
+ * giving each cell's glyph coverage in 0–1. `cell` is the cell edge in raster
+ * pixels and may be fractional; boundaries are rounded so every raster pixel
+ * belongs to exactly one cell.
+ *
+ * @param {Uint8ClampedArray|number[]} data
+ * @param {number} width
+ * @param {number} height
+ * @param {number} cell Cell width, and height unless `cellHeight` is given
+ * @param {number} [cellHeight]
+ */
+export function sampleCoverage(data, width, height, cell, cellHeight = cell) {
+    // ceil() can open a trailing cell whose rounded start lies past the
+    // raster edge; trim it so every cell holds at least one raster pixel.
+    const count = (extent, size) => {
+        let cells = extent > 0 && size > 0 ? Math.ceil(extent / size) : 0
+        while (cells > 0 && Math.round((cells - 1) * size) >= extent) cells -= 1
+        return cells
+    }
+    const columns = count(width, cell)
+    const rows = count(height, cellHeight)
+    const coverage = new Float32Array(columns * rows)
+
+    for (let row = 0; row < rows; row += 1) {
+        const y0 = Math.round(row * cellHeight)
+        const y1 = Math.min(height, Math.round((row + 1) * cellHeight))
+
+        for (let column = 0; column < columns; column += 1) {
+            const x0 = Math.round(column * cell)
+            const x1 = Math.min(width, Math.round((column + 1) * cell))
+            let sum = 0
+
+            for (let y = y0; y < y1; y += 1) {
+                let offset = (y * width + x0) * 4 + 3
+                for (let x = x0; x < x1; x += 1, offset += 4) sum += data[offset]
+            }
+
+            const area = (x1 - x0) * (y1 - y0)
+            coverage[row * columns + column] = area > 0 ? sum / (area * 255) : 0
+        }
+    }
+
+    return { columns, rows, coverage }
+}
+
+function clamp01(value) {
+    return Math.min(1, Math.max(0, value))
+}
+
+/** Builds a canvas font shorthand from a computed style. */
+function canvasFont(style) {
+    const parts = []
+    if (/^(italic|oblique)/u.test(style.fontStyle)) parts.push("italic")
+    if (style.fontVariantCaps === "small-caps") parts.push("small-caps")
+    if (style.fontWeight && style.fontWeight !== "normal") parts.push(style.fontWeight)
+    parts.push(style.fontSize, style.fontFamily)
+    return parts.join(" ")
+}
+
+/** Mirrors CSS text-transform, which the DOM applies but textContent lacks. */
+function transformGrapheme(grapheme, transform, wordStart) {
+    if (transform === "uppercase") return grapheme.toUpperCase()
+    if (transform === "lowercase") return grapheme.toLowerCase()
+    if (transform === "capitalize" && wordStart) return grapheme.toUpperCase()
+    return grapheme
 }
 
 function translate(y) {
@@ -149,7 +376,7 @@ function prefersReducedMotion(element) {
  *
  * @param {Element} element
  * @param {{
- *   type: "typewriter"|"line-reveal"|"gentle",
+ *   type: "typewriter"|"line-reveal"|"gentle"|"pixel",
  *   text?: string,
  *   autoplay?: boolean,
  *   respectReducedMotion?: boolean,
@@ -162,7 +389,10 @@ function prefersReducedMotion(element) {
  *   stagger?: number,
  *   duration?: number,
  *   y?: number,
- *   lineSource?: "auto"|"text"|"visual"
+ *   lineSource?: "auto"|"text"|"visual",
+ *   stepDuration?: number,
+ *   pixelSize?: "auto"|number,
+ *   revealDelay?: number
  * }} options
  */
 export function linetxt(element, options = {}) {
@@ -178,17 +408,23 @@ export function linetxt(element, options = {}) {
     }
 
     const text = normalizeNewlines(options.text ?? element.textContent ?? "")
-    const typeDefaults = type === "typewriter"
-        ? TYPEWRITER_DEFAULTS
-        : type === "line-reveal"
-            ? LINE_REVEAL_DEFAULTS
-            : GENTLE_DEFAULTS
+    const typeDefaults = {
+        typewriter: TYPEWRITER_DEFAULTS,
+        "line-reveal": LINE_REVEAL_DEFAULTS,
+        gentle: GENTLE_DEFAULTS,
+        pixel: PIXEL_DEFAULTS,
+    }[type]
+    const nonNegative = (key) => Math.max(0, Number(options[key] ?? typeDefaults[key]) || 0)
     const settings = {
         ...typeDefaults,
         ...options,
         autoplay: options.autoplay ?? true,
         respectReducedMotion: options.respectReducedMotion ?? true,
-        initialDelay: Math.max(0, Number(options.initialDelay ?? typeDefaults.initialDelay) || 0),
+        initialDelay: nonNegative("initialDelay"),
+    }
+    if (type === "pixel") {
+        settings.stepDuration = nonNegative("stepDuration")
+        settings.revealDelay = nonNegative("revealDelay")
     }
 
     const originalNodes = Array.from(element.childNodes)
@@ -198,6 +434,9 @@ export function linetxt(element, options = {}) {
     let playbackController = null
     let playbackTask = Promise.resolve()
     let destroyed = false
+    // The inline `position` the host had before the pixel overlay needed a
+    // positioned containing block; null while untouched.
+    let patchedPosition = null
 
     element.classList.add(HOST_CLASS)
     element.dataset.linetxt = type
@@ -353,6 +592,330 @@ export function linetxt(element, options = {}) {
         })
     }
 
+    /**
+     * Resolves once web fonts have settled, so the pixel raster samples the
+     * same glyphs the DOM will show. Resolves false when aborted meanwhile.
+     */
+    function fontsReady(signal) {
+        const fonts = element.ownerDocument.fonts
+        if (!fonts?.ready) return Promise.resolve(!signal.aborted)
+
+        return new Promise((resolve) => {
+            const abort = () => resolve(false)
+            signal.addEventListener("abort", abort, { once: true })
+            fonts.ready.then(
+                () => {
+                    signal.removeEventListener("abort", abort)
+                    resolve(!signal.aborted)
+                },
+                () => resolve(!signal.aborted),
+            )
+        })
+    }
+
+    /**
+     * Gives the host a positioned box for the overlay without touching hosts
+     * that are already positioned. Restored by destroy().
+     */
+    function ensurePositioned() {
+        if (patchedPosition !== null) return
+        const view = element.ownerDocument.defaultView
+        if (!view || view.getComputedStyle(element).position !== "static") return
+
+        patchedPosition = element.style.position
+        element.style.position = "relative"
+    }
+
+    /**
+     * Rasterizes every glyph at its own DOM box into an offscreen canvas and
+     * returns that raster with each glyph's box. Positions come from layout
+     * and shapes from the host's computed font, so the pixel blocks line up with
+     * the final text at any width, alignment, or line count.
+     */
+    function rasterizeGlyphs(built, geometry, style, color, scale) {
+        const doc = element.ownerDocument
+        const raster = doc.createElement("canvas")
+        raster.width = Math.max(1, Math.ceil(geometry.width * scale))
+        raster.height = Math.max(1, Math.ceil(geometry.height * scale))
+
+        const ctx = raster.getContext("2d")
+        if (!ctx) return null
+
+        ctx.scale(scale, scale)
+        ctx.fillStyle = color
+        ctx.textAlign = "left"
+        ctx.textBaseline = "alphabetic"
+        ctx.font = canvasFont(style)
+
+        const fontSize = parseFloat(style.fontSize) || 16
+        const metrics = ctx.measureText("Hg")
+        const ascent = metrics.fontBoundingBoxAscent ?? fontSize * 0.8
+        const descent = metrics.fontBoundingBoxDescent ?? fontSize * 0.2
+        const boxes = []
+
+        for (const word of built.words) {
+            for (const [index, unit] of word.units.entries()) {
+                if (/^\s+$/u.test(unit.grapheme)) continue
+
+                const rect = unit.node.getBoundingClientRect()
+                if (rect.width === 0 && rect.height === 0) continue
+
+                // An inline-block glyph box centres its content area within
+                // its line-height, which puts the baseline at half-leading
+                // plus the font ascent below the box top.
+                const x = (rect.left - geometry.left) * geometry.zoom
+                const top = (rect.top - geometry.top) * geometry.zoom
+                const height = rect.height * geometry.zoom
+                const baseline = top + (height - ascent - descent) / 2 + ascent
+                ctx.fillText(transformGrapheme(unit.grapheme, style.textTransform, index === 0), x, baseline)
+                boxes.push({ unit, x, y: top, width: rect.width * geometry.zoom, height })
+            }
+        }
+
+        return { raster, boxes }
+    }
+
+    /**
+     * Builds one filled shape per glyph and pixel level. The grid is
+     * anchored to the glyph's ink bounds and stretched to tile them exactly,
+     * so the coarsest level is one block the size of the glyph and finer
+     * levels subdivide it; cells whose coverage falls short are dropped.
+     */
+    function buildPixelShapes(data, raster, box, levels, scale) {
+        const view = element.ownerDocument.defaultView
+        const bx0 = Math.max(0, Math.floor(box.x * scale))
+        const by0 = Math.max(0, Math.floor(box.y * scale))
+        const bx1 = Math.min(raster.width, Math.ceil((box.x + box.width) * scale))
+        const by1 = Math.min(raster.height, Math.ceil((box.y + box.height) * scale))
+
+        // Ink bounds within the glyph box.
+        let x0 = bx1
+        let y0 = by1
+        let x1 = bx0
+        let y1 = by0
+        for (let y = by0; y < by1; y += 1) {
+            for (let x = bx0; x < bx1; x += 1) {
+                if (data[(y * raster.width + x) * 4 + 3] < PIXEL_TUNING.inkAlpha) continue
+                if (x < x0) x0 = x
+                if (x >= x1) x1 = x + 1
+                if (y < y0) y0 = y
+                if (y >= y1) y1 = y + 1
+            }
+        }
+        const width = x1 - x0
+        const height = y1 - y0
+        if (width <= 0 || height <= 0) return null
+
+        // Crop the ink bounds out of the raster once so every level samples
+        // a small, contiguous buffer.
+        const crop = new Uint8ClampedArray(width * height * 4)
+        for (let y = 0; y < height; y += 1) {
+            const from = ((y0 + y) * raster.width + x0) * 4
+            crop.set(data.subarray(from, from + width * 4), y * width * 4)
+        }
+
+        const shapes = []
+        for (const [index, cell] of levels.entries()) {
+            const threshold = index === 0 ? PIXEL_TUNING.coarseThreshold : PIXEL_TUNING.inkThreshold
+            const columns = Math.max(1, Math.ceil(width / (cell * scale)))
+            const rows = Math.max(1, Math.ceil(height / (cell * scale)))
+            const cellWidth = width / columns
+            const cellHeight = height / rows
+            const grid = sampleCoverage(crop, width, height, cellWidth, cellHeight)
+
+            const rects = []
+            for (let row = 0; row < grid.rows; row += 1) {
+                for (let column = 0; column < grid.columns; column += 1) {
+                    if (grid.coverage[row * grid.columns + column] < threshold) continue
+                    rects.push([
+                        (x0 + column * cellWidth) / scale,
+                        (y0 + row * cellHeight) / scale,
+                        cellWidth / scale,
+                        cellHeight / scale,
+                    ])
+                }
+            }
+
+            let path = null
+            if (typeof view.Path2D === "function") {
+                path = new view.Path2D()
+                for (const [left, top, w, h] of rects) path.rect(left, top, w, h)
+            }
+            shapes.push({ rects, path })
+        }
+
+        return shapes
+    }
+
+    /**
+     * Builds everything the pixel preview draws from: the overlay canvas and,
+     * for every glyph, its pixel shapes per level plus the moment it is
+     * swapped for the real glyph.
+     */
+    function createPixelField(built) {
+        const doc = element.ownerDocument
+        const view = doc.defaultView
+        if (!view || typeof doc.createElement("canvas").getContext !== "function") return null
+
+        const style = view.getComputedStyle(element)
+        const hostRect = element.getBoundingClientRect()
+        // Client rects are in viewport space; a CSS-scaled ancestor shrinks
+        // or grows them relative to the host's own layout pixels.
+        const zoom = hostRect.width > 0 ? element.offsetWidth / hostRect.width : 1
+        const geometry = {
+            left: hostRect.left + element.clientLeft / zoom,
+            top: hostRect.top + element.clientTop / zoom,
+            width: element.clientWidth,
+            height: element.clientHeight,
+            zoom,
+        }
+        if (geometry.width <= 0 || geometry.height <= 0) return null
+
+        const fontSize = parseFloat(style.fontSize) || 16
+        const color = style.color
+        const scale = Math.min(PIXEL_TUNING.sampleScale, Math.max(1, view.devicePixelRatio || 1))
+        const rasterized = rasterizeGlyphs(built, geometry, style, color, scale)
+        if (!rasterized) return null
+
+        const { raster, boxes } = rasterized
+        const data = raster.getContext("2d").getImageData(0, 0, raster.width, raster.height).data
+        const levels = pixelLevels(fontSize, resolvePixelSize(settings.pixelSize, fontSize))
+        const stagger = resolveStagger(settings.stagger, boxes.length)
+        const stepTotal = levels.length * settings.stepDuration
+
+        const glyphs = []
+        for (const [order, box] of boxes.entries()) {
+            const shapes = buildPixelShapes(data, raster, box, levels, scale)
+            if (!shapes) continue
+            const start = order * stagger
+            glyphs.push({
+                unit: box.unit,
+                shapes,
+                start,
+                crispAt: start + stepTotal + settings.revealDelay,
+            })
+        }
+
+        const canvas = doc.createElement("canvas")
+        canvas.className = PIXELS_CLASS
+        canvas.setAttribute("aria-hidden", "true")
+        canvas.width = Math.ceil(geometry.width * scale)
+        canvas.height = Math.ceil(geometry.height * scale)
+        Object.assign(canvas.style, {
+            left: "0px",
+            top: "0px",
+            width: `${geometry.width}px`,
+            height: `${geometry.height}px`,
+        })
+
+        const ctx = canvas.getContext("2d")
+        ctx.setTransform(scale, 0, 0, scale, 0, 0)
+
+        return {
+            canvas,
+            ctx,
+            width: geometry.width,
+            height: geometry.height,
+            color,
+            levels,
+            stepTotal,
+            glyphs,
+            ease: parseEasing(settings.easing),
+            duration: glyphs.length > 0 ? Math.max(...glyphs.map((glyph) => glyph.crispAt)) : 0,
+        }
+    }
+
+    /** The pixel level a glyph shows at the clock time, or -1 once crisp. */
+    function pixelLevelAt(field, glyph, time) {
+        if (time >= glyph.crispAt) return -1
+        if (time < glyph.start || field.stepTotal <= 0) return time < glyph.start ? 0 : field.levels.length - 1
+
+        const progress = field.ease(clamp01((time - glyph.start) / field.stepTotal))
+        return Math.min(field.levels.length - 1, Math.floor(progress * field.levels.length))
+    }
+
+    /** Draws one frame of the pixel preview for the clock time in ms. */
+    function drawPixelFrame(field, time) {
+        const { ctx, width, height, glyphs } = field
+        ctx.clearRect(0, 0, width, height)
+        ctx.fillStyle = field.color
+
+        for (const glyph of glyphs) {
+            const level = pixelLevelAt(field, glyph, time)
+            if (level < 0) continue
+
+            const shape = glyph.shapes[level]
+            if (shape.path) {
+                ctx.fill(shape.path)
+            } else {
+                for (const [left, top, w, h] of shape.rects) ctx.fillRect(left, top, w, h)
+            }
+        }
+    }
+
+    /**
+     * Repaints the overlay every frame from the clock animation's own
+     * currentTime, so pausing, finishing, or cancelling the clock drives the
+     * canvas exactly like the unit animations it runs alongside.
+     */
+    async function renderPixelFrames(field, clock, signal) {
+        const view = element.ownerDocument.defaultView
+        const nextFrame = () => new Promise((resolve) => view.requestAnimationFrame(resolve))
+
+        while (!signal.aborted && field.canvas.isConnected && clock.playState !== "finished" && clock.playState !== "idle") {
+            drawPixelFrame(field, Number(clock.currentTime) || 0)
+            await nextFrame()
+        }
+    }
+
+    /**
+     * Pixel reveal: every glyph is visible from the first frame as a coarse
+     * block pixel of its own shape. Sweeping left to right, each glyph's
+     * pixel cell halves its size in hard steps until it is swapped for the
+     * crisp glyph. The units occupy their final boxes throughout, so nothing
+     * shifts.
+     */
+    async function runPixel(built, signal) {
+        const { units } = built
+        for (const unit of units) unit.node.style.opacity = "0"
+        const showText = () => {
+            for (const unit of units) unit.node.style.opacity = "1"
+        }
+
+        if (!await fontsReady(signal)) return false
+
+        const field = createPixelField(built)
+        if (!field || field.duration === 0) {
+            showText()
+            return true
+        }
+
+        ensurePositioned()
+        element.append(field.canvas)
+
+        // The overlay's animation is the preview's clock. It carries no
+        // visible change of its own; every frame is painted from it.
+        const clock = field.canvas.animate(
+            [{ opacity: 1 }, { opacity: 1 }],
+            { duration: field.duration, easing: "linear", fill: "both" },
+        )
+
+        // Each glyph cuts hard from its finest pixel level to the real character;
+        // whitespace, which draws nothing, appears with the first glyph.
+        const crispAt = new Map(field.glyphs.map((glyph) => [glyph.unit, glyph.crispAt]))
+        const reveals = units.map((unit) => unit.node.animate(
+            [{ opacity: 0 }, { opacity: 1 }],
+            { delay: crispAt.get(unit) ?? 0, duration: 0, fill: "both" },
+        ))
+
+        renderPixelFrames(field, clock, signal).catch(() => undefined)
+
+        return runAnimations([clock, ...reveals], signal, () => {
+            showText()
+            field.canvas.remove()
+        })
+    }
+
     async function run(signal) {
         const reducedMotion = settings.respectReducedMotion && prefersReducedMotion(element)
         const supportsWaapi = typeof element.animate === "function"
@@ -369,6 +932,11 @@ export function linetxt(element, options = {}) {
 
         if (type === "typewriter") {
             await runTypewriter(built, signal)
+            return
+        }
+
+        if (type === "pixel") {
+            await runPixel(built, signal)
             return
         }
 
@@ -422,6 +990,7 @@ export function linetxt(element, options = {}) {
             if (originalAriaLabel === null) element.removeAttribute("aria-label")
             else element.setAttribute("aria-label", originalAriaLabel)
             delete element.dataset.linetxt
+            if (patchedPosition !== null) element.style.position = patchedPosition
             element.replaceChildren(...originalNodes)
         },
 

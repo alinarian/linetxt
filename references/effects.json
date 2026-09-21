@@ -1,26 +1,65 @@
 {
   "name": "linetxt",
   "target": "per-character",
-  "description": "Three one-shot text reveals behind one entry point: typing, line-by-line rise, and a gentle per-character rise.",
+  "description": "Four one-shot text reveals behind one entry point: typing, line-by-line rise, a gentle per-character rise, and a pixel reveal where each glyph resolves from a block pixel to crisp text in a left-to-right sweep.",
   "entry": {
     "call": "linetxt(element, { type, ...parameters })",
-    "required": ["type"],
-    "types": ["typewriter", "line-reveal", "gentle"],
+    "required": [
+      "type"
+    ],
+    "types": [
+      "typewriter",
+      "line-reveal",
+      "gentle",
+      "pixel"
+    ],
     "no_default_type": "An unset or unknown type throws. The mode is chosen by the user, never inferred silently by the runtime.",
-    "invocation": ["$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle"]
+    "invocation": [
+      "$linetxt typewriter",
+      "$linetxt line-reveal",
+      "$linetxt gentle",
+      "$linetxt pixel"
+    ]
   },
   "modes": {
     "typewriter": {
       "description": "Characters are revealed one after another in DOM order. Layout is final from the first frame; only opacity changes.",
       "parameters": {
-        "charInterval": { "default": 45, "unit": "ms", "meaning": "Delay between adjacent characters" },
-        "charDuration": { "default": 0, "unit": "ms", "meaning": "Per-character fade length; 0 is a hard cut" },
-        "easing": { "default": "linear", "meaning": "Easing of the per-character fade" },
-        "initialDelay": { "default": 0, "unit": "ms" },
-        "caret": { "default": true, "meaning": "Blinking caret that follows the typing position" },
-        "caretPersist": { "default": false, "meaning": "Keep the caret after the last character" }
+        "charInterval": {
+          "default": 45,
+          "unit": "ms",
+          "meaning": "Delay between adjacent characters"
+        },
+        "charDuration": {
+          "default": 0,
+          "unit": "ms",
+          "meaning": "Per-character fade length; 0 is a hard cut"
+        },
+        "easing": {
+          "default": "linear",
+          "meaning": "Easing of the per-character fade"
+        },
+        "initialDelay": {
+          "default": 0,
+          "unit": "ms"
+        },
+        "caret": {
+          "default": true,
+          "meaning": "Blinking caret that follows the typing position"
+        },
+        "caretPersist": {
+          "default": false,
+          "meaning": "Keep the caret after the last character"
+        }
       },
-      "keyframes": { "from": { "opacity": 0 }, "to": { "opacity": 1 } },
+      "keyframes": {
+        "from": {
+          "opacity": 0
+        },
+        "to": {
+          "opacity": 1
+        }
+      },
       "delay_formula": "initialDelay + characterIndex * charInterval",
       "caret": {
         "layout": "Zero-width host span; the bar is an absolutely positioned pseudo-element, so caret movement never reflows text.",
@@ -30,16 +69,45 @@
     "line-reveal": {
       "description": "Lines rise from below and fade in, one after another.",
       "parameters": {
-        "stagger": { "default": 100, "unit": "ms", "meaning": "Delay between the start of adjacent lines" },
-        "duration": { "default": 600, "unit": "ms" },
-        "y": { "default": 16, "unit": "px", "meaning": "Starting offset below the final position" },
-        "easing": { "default": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-        "initialDelay": { "default": 0, "unit": "ms" },
-        "lineSource": { "default": "auto", "values": ["auto", "text", "visual"] }
+        "stagger": {
+          "default": 100,
+          "unit": "ms",
+          "meaning": "Delay between the start of adjacent lines"
+        },
+        "duration": {
+          "default": 600,
+          "unit": "ms"
+        },
+        "y": {
+          "default": 16,
+          "unit": "px",
+          "meaning": "Starting offset below the final position"
+        },
+        "easing": {
+          "default": "cubic-bezier(0.2, 0.8, 0.2, 1)"
+        },
+        "initialDelay": {
+          "default": 0,
+          "unit": "ms"
+        },
+        "lineSource": {
+          "default": "auto",
+          "values": [
+            "auto",
+            "text",
+            "visual"
+          ]
+        }
       },
       "keyframes": {
-        "from": { "opacity": 0, "y_px": 16 },
-        "to": { "opacity": 1, "y_px": 0 }
+        "from": {
+          "opacity": 0,
+          "y_px": 16
+        },
+        "to": {
+          "opacity": 1,
+          "y_px": 0
+        }
       },
       "delay_formula": "initialDelay + lineIndex * stagger",
       "line_detection": {
@@ -54,18 +122,98 @@
       "description": "A gentle per-character rise on a frozen motion contract.",
       "relationship": "Enter only. Looping phrase swaps and exit phases are intentionally out of scope for this skill.",
       "parameters": {
-        "stagger": { "default": 15, "unit": "ms", "meaning": "Delay between adjacent characters" },
-        "duration": { "default": 500, "unit": "ms" },
-        "y": { "default": 15, "unit": "px" },
-        "easing": { "default": "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-        "initialDelay": { "default": 0, "unit": "ms" }
+        "stagger": {
+          "default": 15,
+          "unit": "ms",
+          "meaning": "Delay between adjacent characters"
+        },
+        "duration": {
+          "default": 500,
+          "unit": "ms"
+        },
+        "y": {
+          "default": 15,
+          "unit": "px"
+        },
+        "easing": {
+          "default": "cubic-bezier(0.2, 0.8, 0.2, 1)"
+        },
+        "initialDelay": {
+          "default": 0,
+          "unit": "ms"
+        }
       },
       "keyframes": {
-        "from": { "opacity": 0, "y_px": 15 },
-        "to": { "opacity": 1, "y_px": 0 }
+        "from": {
+          "opacity": 0,
+          "y_px": 15
+        },
+        "to": {
+          "opacity": 1,
+          "y_px": 0
+        }
       },
       "delay_formula": "initialDelay + characterIndex * stagger",
       "stagger_order": "normal",
+      "blur": "never",
+      "exit": "none"
+    },
+    "pixel": {
+      "description": "Every glyph is visible from the first frame as a coarse pixel block of its own shape. Sweeping left to right, each glyph halves its pixel cell in hard steps until it cuts to the crisp glyph. No real glyph is visible before its pixel steps have finished.",
+      "sequence_per_glyph": [
+        "one block",
+        "2×2 blocks",
+        "4×4 blocks",
+        "…",
+        "finest pixel level",
+        "clean glyph"
+      ],
+      "parameters": {
+        "stagger": {
+          "default": "auto",
+          "unit": "ms",
+          "meaning": "Delay between adjacent glyphs starting to resolve; auto spreads the sweep over 900ms, clamped to 12–140ms per glyph"
+        },
+        "stepDuration": {
+          "default": 90,
+          "unit": "ms",
+          "meaning": "How long each pixel level is held"
+        },
+        "pixelSize": {
+          "default": "auto",
+          "unit": "px",
+          "meaning": "Finest pixel cell; auto is fontSize / 16, at least 2"
+        },
+        "revealDelay": {
+          "default": 0,
+          "unit": "ms",
+          "meaning": "Hold on the finest pixel level before the cut to the clean glyph"
+        },
+        "easing": {
+          "default": "linear",
+          "meaning": "Easing of a glyph's progress through its levels"
+        },
+        "initialDelay": {
+          "default": 0,
+          "unit": "ms"
+        }
+      },
+      "delay_formula": "glyph n cuts to text at initialDelay + n * stagger + levels * stepDuration + revealDelay; whitespace is skipped in n",
+      "levels": "Cell sizes start at 1.1em (one block per glyph) and halve until the next would drop below pixelSize; the grid is anchored to the glyph's ink bounds and stretched to tile them exactly.",
+      "threshold": "A cell is drawn when 45% of it is ink (30% at the single-block level); weaker cells drop out, which makes coarse levels read as digital fragments.",
+      "sampling": {
+        "source": "Each grapheme unit is drawn into an offscreen canvas at its own DOM box with the host's computed font, colour and text-transform; the baseline is derived from the box height and the font's ascent/descent.",
+        "bounds": "Ink bounds per glyph come from the raster alpha; each level's grid tiles those bounds."
+      },
+      "overlay": {
+        "element": "canvas.linetxt__pixels, aria-hidden, position: absolute over the host's padding box, pointer-events: none, z-index -1 inside an isolated host.",
+        "layout": "Never takes part in layout; the units occupy their final boxes from the first frame, so there is no layout shift.",
+        "clock": "The overlay's animation is the preview clock; the canvas is repainted from its currentTime each frame. Blocks are solid: no fading, no motion.",
+        "cut": "Each unit gets a zero-duration opacity animation delayed to its crisp moment, so the swap from finest pixel level to real glyph is a hard cut."
+      },
+      "tuning": "PIXEL_TUNING in linetxt.js: coarsestCell, autoSizeDivisor, minPixelSize, inkAlpha, autoSweep, autoStaggerMin/Max, inkThreshold, coarseThreshold, sampleScale.",
+      "fallback": "No 2D canvas or a zero-size host shows the text directly; reduced motion renders static text.",
+      "deterministic": true,
       "blur": "never",
       "exit": "none"
     }
@@ -76,14 +224,16 @@
     "rise": "line-reveal and gentle share one rise implementation and differ only in what the delay is keyed to: line index versus character index.",
     "accessibility": "The full text is the host aria-label; every split span is aria-hidden.",
     "reduced_motion": "prefers-reduced-motion renders static text.",
-    "lifecycle": "play, stop, destroy, finished. destroy restores the original child nodes, aria-label, and classes."
+    "lifecycle": "play, stop, destroy, finished. destroy restores the original child nodes, aria-label, and classes.",
+    "easing": "CSS easing strings are shared by every mode; the pixel preview parses keywords and cubic-bezier() into a function to pace a glyph through its pixel levels."
   },
   "adapters": {
     "waapi": {
       "dependency": null,
       "time_unit": "milliseconds",
       "call": "element.animate(keyframes, { delay, duration, easing, fill: 'both' })",
-      "completion": "Await animation.finished, apply the final inline frame, then cancel the retained animation."
+      "completion": "Await animation.finished, apply the final inline frame, then cancel the retained animation.",
+      "pixel": "The overlay canvas is repainted by requestAnimationFrame from a WAAPI clock animation; each glyph's cut to text is a zero-duration opacity animation."
     },
     "motion": {
       "dependency": "motion",
@@ -106,6 +256,7 @@
     "Expose the full text as the host aria-label and hide split spans from assistive technology.",
     "Render static text when reduced motion is preferred.",
     "Typing must not reflow text: reveal with opacity, never with insertion.",
+    "Pixel mode shows every glyph as blocks from the first frame, sharpens glyphs in hard steps from left to right, shows no real glyph before its pixel steps have finished, and leaves plain crisp text with the overlay removed.",
     "Never animate blur.",
     "Do not add an exit animation unless the user asks for one."
   ]
