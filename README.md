@@ -56,6 +56,43 @@ linetxt(document.querySelector("#headline"), { type: "line-reveal" })
 `options.type` is required — `linetxt()` throws rather than choosing a reveal
 on your behalf.
 
+## Pixel mode
+
+`pixel` is a digital entrance. Every glyph is visible from the first frame as
+a single coarse block of its own shape. The whole text then sharpens together
+in hard steps, each step halving the pixel cell of every glyph at once, until
+the text cuts to the crisp glyphs:
+
+```text
+one block per glyph → 2×2 blocks → 4×4 → … → finest pixel level → clean text
+```
+
+Nothing scatters, fades, or moves, and the entire text resolves as one piece:
+a word, a heading, and a wrapped paragraph all finish at the same moment. No
+real glyph is shown before the pixel steps have finished, and the finished
+text is plain DOM text with no pixelation left.
+
+```js
+linetxt(document.querySelector("#headline"), { type: "pixel" })
+```
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `stepDuration` | `90` | Milliseconds each pixel level is held |
+| `pixelSize` | `"auto"` | Finest pixel cell in CSS pixels; `"auto"` is the font size ÷ 16, at least 2 |
+| `revealDelay` | `0` | Milliseconds to hold the finest level before the cut to clean text |
+| `easing` | `"linear"` | Easing of the progress through the levels |
+| `initialDelay` | `0` | Milliseconds to wait before the first frame |
+| `sweep` | `"none"` | `"none"` resolves the whole text together; `"line"` sweeps every line left to right at once; `"text"` runs one wave across the text |
+| `stagger` | `"auto"` | Only with a sweep: milliseconds between adjacent glyphs |
+
+How it works: each glyph is drawn into an offscreen canvas at its own layout
+box with the element's computed font, colour, and `text-transform`, so the
+blocks trace the real letter shapes. A transparent canvas overlay paints the
+blocks in the text's colour; it never takes part in layout, so the text box
+never shifts, and it is removed when the reveal finishes. Reduced-motion
+settings render the text statically, as in every mode.
+
 ## Example page
 
 [assets/waapi/example.html](./assets/waapi/example.html) is a minimal
