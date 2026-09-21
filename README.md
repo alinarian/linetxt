@@ -1,6 +1,7 @@
 # linetxt
 
 A skill for text reveal animations. One entry point, four modes.
+Try every mode with live controls at <https://linetxt.vercel.app/>.
 
 | Mode | When to use it |
 | --- | --- |
@@ -105,9 +106,9 @@ npm run serve
 
 Then open <http://localhost:4173/assets/waapi/example.html>.
 
-An interactive playground with live controls for every parameter lives in a
-separate project, `linetxt-demo`, so this repository stays limited to the
-skill itself.
+An interactive playground with live controls for every parameter is hosted
+at <https://linetxt.vercel.app/>. It lives in a separate project,
+`linetxt-demo`, so this repository stays limited to the skill itself.
 
 ## Tests
 
