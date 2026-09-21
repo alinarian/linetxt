@@ -1,7 +1,7 @@
 {
   "name": "linetxt",
   "target": "per-character",
-  "description": "Four one-shot text reveals behind one entry point: typing, line-by-line rise, a gentle per-character rise, and a pixel reveal where each glyph resolves from a block pixel to crisp text in a left-to-right sweep.",
+  "description": "Four one-shot text reveals behind one entry point: typing, line-by-line rise, a gentle per-character rise, and a pixel reveal where the whole text resolves from coarse pixel blocks to crisp glyphs in hard steps.",
   "entry": {
     "call": "linetxt(element, { type, ...parameters })",
     "required": [
@@ -159,20 +159,12 @@
       "exit": "none"
     },
     "pixel": {
-      "description": "Every glyph is visible from the first frame as a coarse pixel block of its own shape. Sweeping left to right, each glyph halves its pixel cell in hard steps until it cuts to the crisp glyph. No real glyph is visible before its pixel steps have finished.",
-      "sequence_per_glyph": [
-        "one block",
-        "2×2 blocks",
-        "4×4 blocks",
-        "…",
-        "finest pixel level",
-        "clean glyph"
-      ],
+      "description": "Every glyph is visible from the first frame as a coarse pixel block of its own shape. The whole text then halves its pixel cell in hard steps, all glyphs at once, until it cuts to the crisp glyphs. No real glyph is visible before the pixel steps have finished.",
       "parameters": {
         "stagger": {
           "default": "auto",
           "unit": "ms",
-          "meaning": "Delay between adjacent glyphs starting to resolve; auto spreads the sweep over 900ms, clamped to 12–140ms per glyph"
+          "meaning": "Only with a sweep: delay between adjacent glyphs starting to resolve; auto spreads the sweep over 900ms, clamped to 12–140ms per glyph"
         },
         "stepDuration": {
           "default": 90,
@@ -198,13 +190,13 @@
           "unit": "ms"
         },
         "sweep": {
-          "default": "line",
+          "default": "none",
           "values": [
+            "none",
             "line",
-            "text",
-            "none"
+            "text"
           ],
-          "meaning": "line: every line sweeps at once; text: one reading-order wave across the whole text; none: every glyph resolves together"
+          "meaning": "none: the entire text resolves together; line: every line sweeps left to right at once; text: one reading-order wave across the whole text"
         },
         "lineSource": {
           "default": "auto",
@@ -216,7 +208,7 @@
           "meaning": "Line detection for sweep: line, as in line-reveal"
         }
       },
-      "delay_formula": "glyph n of its line (sweep: line) or of the text (sweep: text) cuts to text at initialDelay + n * stagger + levels * stepDuration + revealDelay; whitespace is skipped in n; sweep: none uses n = 0 for every glyph",
+      "delay_formula": "every glyph cuts to text at initialDelay + levels * stepDuration + revealDelay; with sweep line or text, glyph n of its line or of the text starts n * stagger later (whitespace skipped in n)",
       "levels": "Cell sizes start at 1.1em (one block per glyph) and halve until the next would drop below pixelSize; the grid is anchored to the glyph's ink bounds and stretched to tile them exactly.",
       "threshold": "A cell is drawn when 45% of it is ink (30% at the single-block level); weaker cells drop out, which makes coarse levels read as digital fragments.",
       "sampling": {
@@ -234,7 +226,15 @@
       "deterministic": true,
       "blur": "never",
       "exit": "none",
-      "paragraphs": "With the default sweep every line animates from the first frame; no line waits for the one above it. The automatic stagger is sized to the longest line."
+      "paragraphs": "By default a paragraph is one piece: every glyph on every line steps through the same levels at the same moment, so long text takes exactly as long as a single word.",
+      "sequence": [
+        "one block per glyph",
+        "2×2 blocks",
+        "4×4 blocks",
+        "…",
+        "finest pixel level",
+        "clean text"
+      ]
     }
   },
   "shared": {

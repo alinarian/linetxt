@@ -7,7 +7,7 @@ A skill for text reveal animations. One entry point, four modes.
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
-| `pixel` | Each glyph sharpens from pixel blocks to crisp text in a left-to-right sweep |
+| `pixel` | The whole text sharpens from pixel blocks to crisp glyphs in hard steps |
 
 Read [SKILL.md](./SKILL.md) for the full parameter reference.
 

@@ -46,11 +46,11 @@ const PIXEL_DEFAULTS = Object.freeze({
     revealDelay: 0,
     easing: "linear",
     initialDelay: 0,
-    sweep: "line",
+    sweep: "none",
     lineSource: "auto",
 })
 
-const PIXEL_SWEEPS = Object.freeze(["line", "text", "none"])
+const PIXEL_SWEEPS = Object.freeze(["none", "line", "text"])
 
 /**
  * Look-and-feel constants of the pixel mode. They shape the pixel blocks rather
@@ -809,9 +809,9 @@ export function linetxt(element, options = {}) {
         const levels = pixelLevels(fontSize, resolvePixelSize(settings.pixelSize, fontSize))
         const stepTotal = levels.length * settings.stepDuration
 
-        // Where each glyph sits in the sweep: its position within its line
-        // (every line sweeps at once), within the whole text (one reading-
-        // order wave), or nowhere (every glyph resolves together).
+        // Where each glyph sits in the sweep: nowhere by default (the whole
+        // text resolves together), within its line (every line sweeps at
+        // once), or within the whole text (one reading-order wave).
         const orders = sweepOrders(built, boxes)
         const stagger = resolveStagger(settings.stagger, Math.max(...orders, 0) + 1)
 
@@ -902,10 +902,10 @@ export function linetxt(element, options = {}) {
 
     /**
      * Pixel reveal: every glyph is visible from the first frame as a coarse
-     * block pixel of its own shape. Sweeping left to right, each glyph's
-     * pixel cell halves its size in hard steps until it is swapped for the
-     * crisp glyph. The units occupy their final boxes throughout, so nothing
-     * shifts.
+     * pixel block of its own shape. The whole text then halves its pixel
+     * cell in hard steps until every glyph is swapped for its crisp form;
+     * `sweep` can stagger that per line or across the text instead. The
+     * units occupy their final boxes throughout, so nothing shifts.
      */
     async function runPixel(built, signal) {
         const { units } = built

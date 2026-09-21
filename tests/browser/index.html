@@ -428,20 +428,19 @@
                 `${reference.width}x${reference.height} → ${during.width}x${during.height}`,
             )
 
-            // Expected schedule: glyphs (not spaces) resolve in order, each
-            // through every pixel level, then cut hard to the real glyph.
+            // Expected schedule: every glyph (not spaces) steps through every
+            // pixel level at the same time, then cuts hard to the real glyph.
             const fontSize = parseFloat(getComputedStyle(node).fontSize)
             const levels = pixelLevels(fontSize, resolvePixelSize("auto", fontSize)).length
             const glyphCount = text.replaceAll(" ", "").length
-            const stagger = resolveStagger("auto", glyphCount)
-            const expected = [...Array(glyphCount)].map((_, index) => index * stagger + levels * 90)
+            const expected = [...Array(glyphCount)].map(() => levels * 90)
             const glyphDelays = units(node)
                 .filter((unit) => unit.textContent !== " ")
                 .map((unit) => unit.getAnimations()[0]?.effect.getTiming().delay)
             const clock = layer?.getAnimations()[0]
 
             check("pixel reveal has more than one level at this size", levels > 1, String(levels))
-            check("glyphs cut to text in reading order, one stagger apart", String(glyphDelays) === String(expected), `${glyphDelays} vs ${expected}`)
+            check("every glyph cuts to text at the same moment by default", String(glyphDelays) === String(expected), `${glyphDelays} vs ${expected}`)
             check("spaces show with the first glyph", units(node).filter((unit) => unit.textContent === " ").every((unit) => unit.getAnimations()[0]?.effect.getTiming().delay === 0))
             check("the cut to text is hard, not a fade", units(node).every((unit) => unit.getAnimations()[0]?.effect.getTiming().duration === 0))
             check("the preview clock ends when the last glyph is crisp", clock?.effect.getTiming().duration === expected.at(-1), String(clock?.effect.getTiming().duration))
@@ -462,6 +461,7 @@
             const node = host("Tuned")
             const controls = linetxt(node, animated({
                 type: "pixel",
+                sweep: "text",
                 stagger: 40,
                 stepDuration: 50,
                 pixelSize: 4,
@@ -491,19 +491,27 @@
 
             check("pixel preserves the line break", node.querySelectorAll("br").length === 1, String(node.querySelectorAll("br").length))
             check("the preview layer covers the whole multiline box", layer && parseFloat(layer.style.height) === node.clientHeight, layer?.style.height)
-            // Both lines sweep at once: their first glyphs cut to text at the
-            // same moment, and the longer line is what sets the sweep length.
-            const lineOf = (unit) => (unit.compareDocumentPosition(node.querySelector("br")) & Node.DOCUMENT_POSITION_FOLLOWING) ? 0 : 1
-            const glyphUnits = units(node).filter((unit) => unit.textContent !== " ")
             const delayOf = (unit) => unit.getAnimations()[0]?.effect.getTiming().delay
-            const firstDelay = (line) => Math.min(...glyphUnits.filter((unit) => lineOf(unit) === line).map(delayOf))
-            const lastDelay = (line) => Math.max(...glyphUnits.filter((unit) => lineOf(unit) === line).map(delayOf))
-            check("every line starts its sweep together", firstDelay(0) === firstDelay(1), `${firstDelay(0)} vs ${firstDelay(1)}`)
-            check("a shorter line finishes before a longer one", lastDelay(0) < lastDelay(1), `${lastDelay(0)} vs ${lastDelay(1)}`)
-            check("the whole text resolves within one sweep", sortedDelays(node).length <= "Line two that is longer".replaceAll(" ", "").length + 1, String(sortedDelays(node).length))
+            const defaultDelays = new Set(units(node).filter((unit) => unit.textContent !== " ").map(delayOf))
+            check("a paragraph resolves as one piece by default", defaultDelays.size === 1, String([...defaultDelays]))
             await settle(node, controls)
             check("multiline pixel text stays intact", node.textContent === text.replaceAll("\n", ""), JSON.stringify(node.textContent))
             controls.destroy()
+
+            // With sweep "line" both lines sweep at once: their first glyphs
+            // cut to text at the same moment, and the longer line sets the
+            // sweep length.
+            const lined = host(text)
+            const linedControls = linetxt(lined, animated({ type: "pixel", sweep: "line" }))
+            await tick()
+            await pixelLayerReady(lined)
+            const lineOf = (unit) => (unit.compareDocumentPosition(lined.querySelector("br")) & Node.DOCUMENT_POSITION_FOLLOWING) ? 0 : 1
+            const glyphUnits = units(lined).filter((unit) => unit.textContent !== " ")
+            const firstDelay = (line) => Math.min(...glyphUnits.filter((unit) => lineOf(unit) === line).map(delayOf))
+            const lastDelay = (line) => Math.max(...glyphUnits.filter((unit) => lineOf(unit) === line).map(delayOf))
+            check('sweep "line" starts every line together', firstDelay(0) === firstDelay(1), `${firstDelay(0)} vs ${firstDelay(1)}`)
+            check('sweep "line" finishes a shorter line first', lastDelay(0) < lastDelay(1), `${lastDelay(0)} vs ${lastDelay(1)}`)
+            linedControls.destroy()
 
             const wave = host(text)
             const waveControls = linetxt(wave, animated({ type: "pixel", sweep: "text", stagger: 10 }))
@@ -513,16 +521,9 @@
             check('sweep "text" runs one wave across every line', waveDelays.every((delay, index) => index === 0 || delay > waveDelays[index - 1]), String(waveDelays))
             waveControls.destroy()
 
-            const together = host(text)
-            const togetherControls = linetxt(together, animated({ type: "pixel", sweep: "none" }))
-            await tick()
-            await pixelLayerReady(together)
-            const togetherDelays = new Set(units(together).filter((unit) => unit.textContent !== " ").map(delayOf))
-            check('sweep "none" resolves every glyph together', togetherDelays.size === 1, String([...togetherDelays]))
             let badSweep = null
             try { linetxt(host("x"), { type: "pixel", sweep: "sideways" }) } catch (error) { badSweep = error }
             check("an unknown sweep throws", badSweep instanceof TypeError, String(badSweep))
-            togetherControls.destroy()
 
             const tiny = host("I")
             const tinyControls = linetxt(tiny, animated({ type: "pixel" }))

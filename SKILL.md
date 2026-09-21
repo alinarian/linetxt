@@ -1,6 +1,6 @@
 ---
 name: linetxt
-description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal where each glyph resolves from a coarse block pixel to crisp text in a left-to-right sweep. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
+description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal where the whole text resolves from coarse pixel blocks to crisp glyphs in hard steps. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
 ---
 
 # linetxt
@@ -22,7 +22,7 @@ The mode is a required input. Do not pick one silently.
      1. typewriter   — types the text out character by character
      2. line-reveal  — lines rise from below, 100ms apart
      3. gentle       — a soft per-character rise
-     4. pixel        — glyphs resolve from coarse blocks to crisp text, left to right
+     4. pixel        — the whole text resolves from coarse pixel blocks to crisp glyphs
    ```
 
 The runtime enforces this too: `linetxt()` throws when `options.type` is
@@ -33,7 +33,7 @@ missing or unknown, so a forgotten mode fails loudly instead of defaulting.
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
-| `pixel` | A digital entrance: each glyph sharpens from pixel blocks in hard steps, sweeping left to right |
+| `pixel` | A digital entrance: the whole text sharpens from pixel blocks to crisp glyphs in hard steps |
 
 ## Workflow
 
@@ -153,37 +153,31 @@ linetxt(element, { type: "gentle" })
 ## Mode 4 — pixel
 
 Every glyph is visible from the first frame as a coarse pixel block of its
-own shape. Sweeping from left to right, each glyph's pixel cell halves its
-size in hard steps until it is swapped for the crisp glyph. The sequence per
-glyph is `one block → 2×2 blocks → 4×4 → … → finest pixel level → clean glyph`,
-and because glyphs start a stagger apart, the leading letters are crisp while
-the trailing ones are still large blocks. No real glyph is visible before its
-pixel steps have finished.
+own shape. The whole text then sharpens together: each step halves the pixel
+cell of every glyph at once, in hard cuts, until the text is swapped for the
+crisp glyphs. The sequence is `one block per glyph → 2×2 blocks → 4×4 → … →
+finest pixel level → clean text`, applied to the entire text at the same
+time. No real glyph is visible before the pixel steps have finished.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `stagger` | `"auto"` | Milliseconds between adjacent glyphs starting to resolve; `"auto"` spreads the sweep over 900ms, clamped to 12–140ms per glyph |
 | `stepDuration` | `90` | Milliseconds each pixel level is held |
 | `pixelSize` | `"auto"` | Finest pixel cell in CSS pixels; `"auto"` is the font size ÷ 16, at least 2 |
-| `revealDelay` | `0` | Milliseconds to hold the finest pixel level before the cut to the clean glyph |
-| `easing` | `"linear"` | Easing of a glyph's progress through its levels; `linear` holds every level equally |
+| `revealDelay` | `0` | Milliseconds to hold the finest pixel level before the cut to the clean text |
+| `easing` | `"linear"` | Easing of the progress through the levels; `linear` holds every level equally |
 | `initialDelay` | `0` | Milliseconds to wait before the first frame |
-| `sweep` | `"line"` | What the stagger is keyed to: `"line"`, `"text"`, or `"none"` |
-| `lineSource` | `"auto"` | How lines are detected for `sweep: "line"`: `"auto"`, `"text"`, `"visual"`, as in line-reveal |
+| `sweep` | `"none"` | `"none"` resolves the entire text together; `"line"` and `"text"` stagger glyphs instead |
+| `stagger` | `"auto"` | Only with a sweep: milliseconds between adjacent glyphs starting to resolve; `"auto"` spreads the sweep over 900ms, clamped to 12–140ms per glyph |
+| `lineSource` | `"auto"` | Only with `sweep: "line"`: line detection, `"auto"`, `"text"`, or `"visual"`, as in line-reveal |
 
-The sweep decides how a paragraph behaves:
+By default the text is one piece: a word, a heading, and a wrapped paragraph
+all step through their pixel levels together and cut to clean text at the
+same moment, after `levels × stepDuration + revealDelay` milliseconds. The
+sweeps are opt-in variations:
 
-- `"line"` — every line sweeps at the same time. Glyph `n` of each line starts
-  at `n × stagger`, so a whole paragraph is animating from the first frame
-  and no line waits for the one above it. The automatic stagger spreads the
-  longest line over the budget.
-- `"text"` — one wave in reading order across the whole text; the last line
-  is still blocks while the first is crisp.
-- `"none"` — every glyph resolves together, with no stagger at all.
-
-A single word at 130ms stagger and 90ms steps reads as the classic
-letter-by-letter resolve; the automatic stagger keeps a whole paragraph to a
-wave of about a second.
+- `"line"` — every line sweeps left to right at the same time; glyph `n` of
+  each line starts at `n × stagger`, so no line waits for the one above it.
+- `"text"` — one left-to-right wave in reading order across the whole text.
 
 How the pixel levels are built:
 
@@ -204,11 +198,11 @@ How the pixel levels are built:
   positioned and `pointer-events: none`, so it never takes part in layout.
   Each frame fills every unresolved glyph's pixel blocks at its current level in
   the host's text colour; blocks are solid, with no fading or motion.
-- Glyph `n` (whitespace excluded) of its line, or of the text for
-  `sweep: "text"`, starts resolving at `n × stagger`, holds each level for
-  `stepDuration`, holds the finest level for `revealDelay`, then cuts to the
-  real glyph with a zero-duration opacity animation. The overlay is removed
-  when the last glyph is crisp, leaving plain DOM text.
+- Every glyph holds each level for `stepDuration`, holds the finest level
+  for `revealDelay`, then cuts to the real glyph with a zero-duration opacity
+  animation. With a sweep, glyph `n` of its line or of the text starts
+  `n × stagger` later. The overlay is removed when the last glyph is crisp,
+  leaving plain DOM text.
 - The overlay's animation is the clock for the whole preview; the canvas is
   repainted from its `currentTime` every frame. Pausing, finishing, or
   cancelling that animation drives the canvas exactly like the unit
@@ -218,17 +212,16 @@ How the pixel levels are built:
   the frozen `PIXEL_TUNING` object in `linetxt.js`. The effect is fully
   deterministic: the same text renders the same frames every time.
 
-Edge cases: a single character resolves through its own levels; a long line
-uses a faster automatic stagger so its sweep still completes in about a
-second; multiline and wrapped text animate all lines at once, each line
-sweeping left to right. When the document has no 2D canvas, or the host has no size, the text
-is simply shown. Reduced motion renders static text as in every mode.
+Edge cases: a single character resolves through its own levels; long,
+multiline, and wrapped text resolve as one piece in the same time as a single
+word, since no glyph waits for another. When the document has no 2D canvas,
+or the host has no size, the text is simply shown. Reduced motion renders static text as in every mode.
 
 The host receives `position: relative` only when it was `static`, so the
 overlay has a containing block; `destroy()` restores the inline value.
 
 ```js
-linetxt(element, { type: "pixel", stagger: 130, stepDuration: 90 })
+linetxt(element, { type: "pixel", stepDuration: 90 })
 ```
 
 ## Host and accessibility
@@ -265,11 +258,10 @@ handling, and the playback lifecycle are already shared.
   `cubic-bezier(0.2, 0.8, 0.2, 1)`, and no blur at any frame.
 - Confirm spaces, punctuation, emoji, and non-Latin graphemes remain intact.
 - Confirm multiline text wraps only between words, never inside a word.
-- Confirm `pixel` shows every glyph as blocks from the first frame, that
-  glyphs sharpen in hard steps from left to right, that every line of a
-  paragraph animates at the same time, that no real glyph is visible before
-  its pixel steps have finished, and that the finished text is crisp with the
-  overlay removed.
+- Confirm `pixel` shows every glyph as blocks from the first frame, that the
+  entire text sharpens in hard steps at the same time rather than glyph by
+  glyph, that no real glyph is visible before the pixel steps have finished,
+  and that the finished text is crisp with the overlay removed.
 - Confirm no exit animation runs unless explicitly requested.
 
 ## Examples
