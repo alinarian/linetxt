@@ -7,9 +7,11 @@ import {
     TYPES,
     cubicBezier,
     groupByOffsetTop,
+    mosaicLevels,
     normalizeNewlines,
     parseEasing,
     resolvePixelSize,
+    resolveStagger,
     sampleCoverage,
     splitGraphemes,
 } from "../assets/waapi/linetxt.js"
@@ -104,22 +106,52 @@ test("parseEasing degrades unknown easings to linear", () => {
     assert.equal(parseEasing("cubic-bezier(a, b, c, d)")(0.42), 0.42)
 })
 
-test("resolvePixelSize derives an automatic cell from the font size", () => {
-    assert.equal(resolvePixelSize("auto", 64), 8)
-    assert.equal(resolvePixelSize("auto", 20), 3)
-    assert.equal(resolvePixelSize(undefined, 20), 3)
+test("resolvePixelSize derives the finest cell from the font size", () => {
+    assert.equal(resolvePixelSize("auto", 64), 4)
+    assert.equal(resolvePixelSize("auto", 150), 9)
+    assert.equal(resolvePixelSize(undefined, 20), PIXEL_TUNING.minPixelSize)
 })
 
-test("resolvePixelSize clamps the automatic cell to the tuned range", () => {
+test("resolvePixelSize never goes below the tuned minimum", () => {
     assert.equal(resolvePixelSize("auto", 8), PIXEL_TUNING.minPixelSize)
-    assert.equal(resolvePixelSize("auto", 400), PIXEL_TUNING.maxPixelSize)
-})
-
-test("resolvePixelSize honours an explicit size and rejects nonsense", () => {
-    assert.equal(resolvePixelSize(5, 64), 5)
-    assert.equal(resolvePixelSize("6", 64), 6)
     assert.equal(resolvePixelSize(0, 64), PIXEL_TUNING.minPixelSize)
     assert.equal(resolvePixelSize("big", 64), PIXEL_TUNING.minPixelSize)
+})
+
+test("resolvePixelSize honours an explicit size", () => {
+    assert.equal(resolvePixelSize(5, 64), 5)
+    assert.equal(resolvePixelSize("6", 64), 6)
+})
+
+test("mosaicLevels halves from one block per glyph down to the finest cell", () => {
+    const levels = mosaicLevels(150, 9)
+    assert.equal(levels[0], 150 * PIXEL_TUNING.coarsestCell)
+    for (let index = 1; index < levels.length; index += 1) {
+        assert.equal(levels[index], levels[index - 1] / 2)
+    }
+    assert.ok(levels.at(-1) >= 9, String(levels))
+    assert.ok(levels.at(-1) / 2 < 9, String(levels))
+})
+
+test("mosaicLevels always yields at least the single-block level", () => {
+    assert.deepEqual(mosaicLevels(10, 40), [40])
+    assert.equal(mosaicLevels(0, 2).length, 1)
+})
+
+test("resolveStagger spreads the automatic sweep over a fixed budget", () => {
+    assert.equal(resolveStagger("auto", 1), 0)
+    assert.equal(resolveStagger("auto", 10), PIXEL_TUNING.autoSweep / 9)
+})
+
+test("resolveStagger clamps the automatic pace per character", () => {
+    assert.equal(resolveStagger("auto", 2), PIXEL_TUNING.autoStaggerMax)
+    assert.equal(resolveStagger("auto", 500), PIXEL_TUNING.autoStaggerMin)
+})
+
+test("resolveStagger honours an explicit value and rejects nonsense", () => {
+    assert.equal(resolveStagger(130, 8), 130)
+    assert.equal(resolveStagger(-5, 8), 0)
+    assert.equal(resolveStagger("fast", 8), 0)
 })
 
 /** Builds an RGBA raster whose alpha is 255 wherever `ink(x, y)` is true. */
@@ -152,6 +184,16 @@ test("sampleCoverage assigns every raster pixel to exactly one fractional cell",
     assert.ok(Array.from(grid.coverage).every((value) => value === 1), String(grid.coverage))
 })
 
+test("sampleCoverage accepts a separate cell height", () => {
+    // Ink fills the top half of a 4×4 raster; 2-wide × 1-tall cells.
+    const data = raster(4, 4, (x, y) => y < 2)
+    const grid = sampleCoverage(data, 4, 4, 2, 1)
+
+    assert.equal(grid.columns, 2)
+    assert.equal(grid.rows, 4)
+    assert.deepEqual(Array.from(grid.coverage), [1, 1, 1, 1, 0, 0, 0, 0])
+})
+
 test("sampleCoverage handles an empty raster", () => {
     const grid = sampleCoverage(new Uint8ClampedArray(0), 0, 0, 4)
     assert.equal(grid.columns, 0)
@@ -161,6 +203,7 @@ test("sampleCoverage handles an empty raster", () => {
 
 test("pixel tuning is frozen against accidental retuning", () => {
     assert.ok(Object.isFrozen(PIXEL_TUNING))
-    assert.ok(PIXEL_TUNING.travel > 0 && PIXEL_TUNING.travel < 1)
+    assert.ok(PIXEL_TUNING.coarsestCell > 0)
     assert.ok(PIXEL_TUNING.inkThreshold > 0 && PIXEL_TUNING.inkThreshold < 1)
+    assert.ok(PIXEL_TUNING.coarseThreshold <= PIXEL_TUNING.inkThreshold)
 })

@@ -61,9 +61,8 @@
     isolation: isolate;
 }
 
-/* The pixel preview layer. Absolutely positioned inside the host, so it never
-   takes part in layout; its offset and size are set inline because the layer
-   bleeds past the text box by the scatter radius. */
+/* The pixel preview layer. Absolutely positioned over the host's padding box,
+   so it never takes part in layout; its size is set inline to match. */
 .linetxt__pixels {
     position: absolute;
     z-index: -1;

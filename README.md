@@ -7,7 +7,7 @@ A skill for text reveal animations. One entry point, four modes.
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
-| `pixel` | The text is assembled from animated pixels, then resolves into crisp glyphs |
+| `pixel` | Each glyph sharpens from a block mosaic to crisp text in a left-to-right sweep |
 
 Read [SKILL.md](./SKILL.md) for the full parameter reference.
 
@@ -75,7 +75,7 @@ skill itself.
 ## Tests
 
 Pure logic — grapheme splitting, line grouping, the gentle contract, easing
-parsing, and pixel coverage sampling — runs in Node with no dependencies:
+parsing, mosaic levels, and pixel coverage sampling — runs in Node with no dependencies:
 
 ```bash
 npm test

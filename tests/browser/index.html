@@ -60,7 +60,7 @@
     <script type="module">
         // Cache-busted so a run always exercises the file on disk rather than
         // a copy the browser kept from an earlier version of the module.
-        const { linetxt } = await import(`../../assets/waapi/linetxt.js?v=${Date.now()}`)
+        const { linetxt, mosaicLevels, resolvePixelSize, resolveStagger } = await import(`../../assets/waapi/linetxt.js?v=${Date.now()}`)
 
         const stage = document.querySelector("#stage")
         const results = document.querySelector("#results")
@@ -409,15 +409,17 @@
             await tick()
 
             check("pixel splits every grapheme", units(node).length === text.length, String(units(node).length))
-            check("pixel starts with transparent text", units(node).every((unit) => getComputedStyle(unit).opacity === "0"))
+            // Spaces draw nothing, so they may show at once; glyphs may not.
+            const glyphs = (target) => units(target).filter((unit) => unit.textContent !== " ")
+            check("pixel starts with transparent glyphs", glyphs(node).every((unit) => getComputedStyle(unit).opacity === "0"))
 
             const layer = await pixelLayerReady(node)
             check("pixel renders a preview layer inside the host", layer instanceof HTMLCanvasElement && layer.parentElement === node)
             check("the preview layer is hidden from assistive tech", layer?.getAttribute("aria-hidden") === "true")
             check("the preview layer is positioned out of flow", layer && getComputedStyle(layer).position === "absolute")
             check("the host is positioned for the overlay", getComputedStyle(node).position === "relative", getComputedStyle(node).position)
-            check("the preview layer bleeds past the text box", layer && parseFloat(layer.style.left) < 0 && parseFloat(layer.style.width) > node.clientWidth)
-            check("the preview layer has painted pixels", layer && layer.getContext("2d").getImageData(0, 0, layer.width, layer.height).data.some((value, index) => index % 4 === 3 && value > 0))
+            check("the preview layer covers the text box exactly", layer && parseFloat(layer.style.left) === 0 && parseFloat(layer.style.width) === node.clientWidth, layer?.style.cssText)
+            check("the preview layer has painted blocks", layer && layer.getContext("2d").getImageData(0, 0, layer.width, layer.height).data.some((value, index) => index % 4 === 3 && value > 0))
 
             const during = node.getBoundingClientRect()
             check(
@@ -426,11 +428,23 @@
                 `${reference.width}x${reference.height} → ${during.width}x${during.height}`,
             )
 
+            // Expected schedule: glyphs (not spaces) resolve in order, each
+            // through every mosaic level, then cut hard to the real glyph.
+            const fontSize = parseFloat(getComputedStyle(node).fontSize)
+            const levels = mosaicLevels(fontSize, resolvePixelSize("auto", fontSize)).length
+            const glyphCount = text.replaceAll(" ", "").length
+            const stagger = resolveStagger("auto", glyphCount)
+            const expected = [...Array(glyphCount)].map((_, index) => index * stagger + levels * 90)
+            const glyphDelays = units(node)
+                .filter((unit) => unit.textContent !== " ")
+                .map((unit) => unit.getAnimations()[0]?.effect.getTiming().delay)
             const clock = layer?.getAnimations()[0]
-            check("the preview clock spans preview + reveal", clock?.effect.getTiming().duration === 1350, String(clock?.effect.getTiming().duration))
-            check("text waits for the whole pixel preview", delays(node).every((delay) => delay === 900), String(sortedDelays(node)))
-            check("text resolves over revealDuration", timing(node).duration === 450, String(timing(node).duration))
-            check("pixel uses the documented easing", timing(node).easing === "cubic-bezier(0.2, 0.8, 0.2, 1)", String(timing(node).easing))
+
+            check("mosaic has more than one level at this size", levels > 1, String(levels))
+            check("glyphs cut to text in reading order, one stagger apart", String(glyphDelays) === String(expected), `${glyphDelays} vs ${expected}`)
+            check("spaces show with the first glyph", units(node).filter((unit) => unit.textContent === " ").every((unit) => unit.getAnimations()[0]?.effect.getTiming().delay === 0))
+            check("the cut to text is hard, not a fade", units(node).every((unit) => unit.getAnimations()[0]?.effect.getTiming().duration === 0))
+            check("the preview clock ends when the last glyph is crisp", clock?.effect.getTiming().duration === expected.at(-1), String(clock?.effect.getTiming().duration))
 
             await settle(node, controls)
             const after = node.getBoundingClientRect()
@@ -448,20 +462,21 @@
             const node = host("Tuned")
             const controls = linetxt(node, animated({
                 type: "pixel",
-                previewDuration: 300,
-                revealDelay: 100,
-                revealDuration: 200,
+                stagger: 40,
+                stepDuration: 50,
                 pixelSize: 4,
-                easing: "ease-in-out",
+                revealDelay: 100,
             }))
             await tick()
             const layer = await pixelLayerReady(node)
 
+            const fontSize = parseFloat(getComputedStyle(node).fontSize)
+            const levels = mosaicLevels(fontSize, 4).length
+            const expected = [...Array(5)].map((_, index) => index * 40 + levels * 50 + 100)
             const clock = layer?.getAnimations()[0]
-            check("custom timing sets the clock length", clock?.effect.getTiming().duration === 600, String(clock?.effect.getTiming().duration))
-            check("revealDelay holds the pixelated text", delays(node).every((delay) => delay === 400), String(sortedDelays(node)))
-            check("custom revealDuration is forwarded", timing(node).duration === 200, String(timing(node).duration))
-            check("custom easing is forwarded", timing(node).easing === "ease-in-out", String(timing(node).easing))
+            check("custom stagger and stepDuration set the schedule", String(delays(node)) === String(expected), `${delays(node)} vs ${expected}`)
+            check("revealDelay holds the finest mosaic before the cut", delays(node)[0] === levels * 50 + 100, String(delays(node)[0]))
+            check("custom timing sets the clock length", clock?.effect.getTiming().duration === expected.at(-1), String(clock?.effect.getTiming().duration))
 
             await settle(node, controls)
             controls.destroy()
@@ -475,7 +490,8 @@
             const layer = await pixelLayerReady(node)
 
             check("pixel preserves the line break", node.querySelectorAll("br").length === 1, String(node.querySelectorAll("br").length))
-            check("the preview layer covers the whole multiline box", layer && parseFloat(layer.style.height) > node.clientHeight)
+            check("the preview layer covers the whole multiline box", layer && parseFloat(layer.style.height) === node.clientHeight, layer?.style.height)
+            check("the sweep continues across lines", sortedDelays(node).length > 2, String(sortedDelays(node).length))
             await settle(node, controls)
             check("multiline pixel text stays intact", node.textContent === text.replaceAll("\n", ""), JSON.stringify(node.textContent))
             controls.destroy()

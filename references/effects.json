@@ -1,7 +1,7 @@
 {
   "name": "linetxt",
   "target": "per-character",
-  "description": "Four one-shot text reveals behind one entry point: typing, line-by-line rise, a gentle per-character rise, and a pixel reveal that assembles the glyphs before showing them.",
+  "description": "Four one-shot text reveals behind one entry point: typing, line-by-line rise, a gentle per-character rise, and a pixel reveal where each glyph resolves from a block mosaic to crisp text in a left-to-right sweep.",
   "entry": {
     "call": "linetxt(element, { type, ...parameters })",
     "required": [
@@ -159,67 +159,61 @@
       "exit": "none"
     },
     "pixel": {
-      "description": "The glyphs are sampled into a pixel grid; scattered pixels converge into the letter shapes, hold as pixelated text, then resolve through finer rasters while the real text fades in. No real glyph is visible before the preview completes.",
-      "sequence": [
-        "empty",
-        "scattered pixels",
-        "pixels form letter shapes",
-        "recognizable pixelated text",
-        "pixels resolve",
-        "clean final text"
+      "description": "Every glyph is visible from the first frame as a coarse block mosaic of its own shape. Sweeping left to right, each glyph halves its mosaic cell in hard steps until it cuts to the crisp glyph. No real glyph is visible before its mosaic has finished.",
+      "sequence_per_glyph": [
+        "one block",
+        "2×2 blocks",
+        "4×4 blocks",
+        "…",
+        "finest mosaic",
+        "clean glyph"
       ],
       "parameters": {
-        "previewDuration": {
-          "default": 900,
+        "stagger": {
+          "default": "auto",
           "unit": "ms",
-          "meaning": "From the first scattered pixel to fully formed pixelated text"
+          "meaning": "Delay between adjacent glyphs starting to resolve; auto spreads the sweep over 900ms, clamped to 12–140ms per glyph"
+        },
+        "stepDuration": {
+          "default": 90,
+          "unit": "ms",
+          "meaning": "How long each mosaic level is held"
         },
         "pixelSize": {
           "default": "auto",
           "unit": "px",
-          "meaning": "Cell size; auto is fontSize / 8 clamped to 2–16"
-        },
-        "scatter": {
-          "default": 0.75,
-          "unit": "em",
-          "meaning": "Radius pixels start scattered from their final cell"
+          "meaning": "Finest mosaic cell; auto is fontSize / 16, at least 2"
         },
         "revealDelay": {
           "default": 0,
           "unit": "ms",
-          "meaning": "Hold on the pixelated text before it resolves"
-        },
-        "revealDuration": {
-          "default": 450,
-          "unit": "ms",
-          "meaning": "Finer rasters, then the crossfade to clean text"
+          "meaning": "Hold on the finest mosaic before the cut to the clean glyph"
         },
         "easing": {
-          "default": "cubic-bezier(0.2, 0.8, 0.2, 1)",
-          "meaning": "Easing of each pixel's convergence and of the crossfade"
+          "default": "linear",
+          "meaning": "Easing of a glyph's progress through its levels"
         },
         "initialDelay": {
           "default": 0,
           "unit": "ms"
         }
       },
-      "timeline": {
-        "preview": "0 → previewDuration: pixels appear scattered, drift and flicker, then converge on their grid cells, biased toward reading order.",
-        "hold": "previewDuration → previewDuration + revealDelay: the coarse pixelated text is held.",
-        "resolve": "Next revealDuration ms: raster levels at cell, cell/2, cell/4, then the anti-aliased glyphs; units animate opacity 0 → 1 with delay previewDuration + revealDelay; the overlay fades out over the last 45% and is removed."
-      },
+      "delay_formula": "glyph n cuts to text at initialDelay + n * stagger + levels * stepDuration + revealDelay; whitespace is skipped in n",
+      "levels": "Cell sizes start at 1.1em (one block per glyph) and halve until the next would drop below pixelSize; the grid is anchored to the glyph's ink bounds and stretched to tile them exactly.",
+      "threshold": "A cell is drawn when 45% of it is ink (30% at the single-block level); weaker cells drop out, which makes coarse levels read as digital fragments.",
       "sampling": {
         "source": "Each grapheme unit is drawn into an offscreen canvas at its own DOM box with the host's computed font, colour and text-transform; the baseline is derived from the box height and the font's ascent/descent.",
-        "grid": "Alpha coverage is averaged per cell; cells above the ink threshold become pixels with alpha keyed to coverage.",
-        "budget": "The cell size grows until the pixel count fits the tuned maximum, so long copy stays smooth."
+        "bounds": "Ink bounds per glyph come from the raster alpha; each level's grid tiles those bounds."
       },
       "overlay": {
-        "element": "canvas.linetxt__pixels, aria-hidden, position: absolute, pointer-events: none, z-index -1 inside an isolated host, bleeding past the text box by the scatter radius.",
+        "element": "canvas.linetxt__pixels, aria-hidden, position: absolute over the host's padding box, pointer-events: none, z-index -1 inside an isolated host.",
         "layout": "Never takes part in layout; the units occupy their final boxes from the first frame, so there is no layout shift.",
-        "clock": "The overlay's opacity animation is the preview clock; the canvas is repainted from its currentTime each frame."
+        "clock": "The overlay's animation is the preview clock; the canvas is repainted from its currentTime each frame. Blocks are solid: no fading, no motion.",
+        "cut": "Each unit gets a zero-duration opacity animation delayed to its crisp moment, so the swap from finest mosaic to real glyph is a hard cut."
       },
-      "tuning": "PIXEL_TUNING in linetxt.js: autoSizeDivisor, min/maxPixelSize, maxPixels, inkThreshold, travel, orderBias, drift, decoyRatio, flickerInterval, sampleScale.",
+      "tuning": "PIXEL_TUNING in linetxt.js: coarsestCell, autoSizeDivisor, minPixelSize, inkAlpha, autoSweep, autoStaggerMin/Max, inkThreshold, coarseThreshold, sampleScale.",
       "fallback": "No 2D canvas or a zero-size host shows the text directly; reduced motion renders static text.",
+      "deterministic": true,
       "blur": "never",
       "exit": "none"
     }
@@ -231,7 +225,7 @@
     "accessibility": "The full text is the host aria-label; every split span is aria-hidden.",
     "reduced_motion": "prefers-reduced-motion renders static text.",
     "lifecycle": "play, stop, destroy, finished. destroy restores the original child nodes, aria-label, and classes.",
-    "easing": "CSS easing strings are shared by every mode; the pixel preview parses keywords and cubic-bezier() into a function for canvas drawing."
+    "easing": "CSS easing strings are shared by every mode; the pixel preview parses keywords and cubic-bezier() into a function to pace a glyph through its mosaic levels."
   },
   "adapters": {
     "waapi": {
@@ -239,7 +233,7 @@
       "time_unit": "milliseconds",
       "call": "element.animate(keyframes, { delay, duration, easing, fill: 'both' })",
       "completion": "Await animation.finished, apply the final inline frame, then cancel the retained animation.",
-      "pixel": "The overlay canvas is repainted by requestAnimationFrame from a WAAPI clock animation; the crossfade is a per-unit opacity animation."
+      "pixel": "The overlay canvas is repainted by requestAnimationFrame from a WAAPI clock animation; each glyph's cut to text is a zero-duration opacity animation."
     },
     "motion": {
       "dependency": "motion",
@@ -262,7 +256,7 @@
     "Expose the full text as the host aria-label and hide split spans from assistive technology.",
     "Render static text when reduced motion is preferred.",
     "Typing must not reflow text: reveal with opacity, never with insertion.",
-    "Pixel mode shows no real glyph before the pixel preview completes, samples the actual letter shapes, and leaves plain crisp text with the overlay removed.",
+    "Pixel mode shows every glyph as blocks from the first frame, sharpens glyphs in hard steps from left to right, shows no real glyph before its mosaic has finished, and leaves plain crisp text with the overlay removed.",
     "Never animate blur.",
     "Do not add an exit animation unless the user asks for one."
   ]

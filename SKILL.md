@@ -1,6 +1,6 @@
 ---
 name: linetxt
-description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal that assembles the glyphs from animated pixels before the crisp text appears. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
+description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal where each glyph resolves from a coarse block mosaic to crisp text in a left-to-right sweep. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
 ---
 
 # linetxt
@@ -22,7 +22,7 @@ The mode is a required input. Do not pick one silently.
      1. typewriter   — types the text out character by character
      2. line-reveal  — lines rise from below, 100ms apart
      3. gentle       — a soft per-character rise
-     4. pixel        — the text is assembled from animated pixels, then resolves
+     4. pixel        — glyphs resolve from coarse blocks to crisp text, left to right
    ```
 
 The runtime enforces this too: `linetxt()` throws when `options.type` is
@@ -33,7 +33,7 @@ missing or unknown, so a forgotten mode fails loudly instead of defaulting.
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
-| `pixel` | A digital entrance: pixels converge into the glyphs before the crisp text appears |
+| `pixel` | A digital entrance: each glyph sharpens from a block mosaic in hard steps, sweeping left to right |
 
 ## Workflow
 
@@ -152,62 +152,70 @@ linetxt(element, { type: "gentle" })
 
 ## Mode 4 — pixel
 
-The text is assembled from pixels before it is shown. The sequence is
-`empty → scattered pixels → pixels form letter shapes → recognizable pixelated
-text → pixels resolve → clean final text`. The real glyphs are never visible
-until the pixel phase has completed.
+Every glyph is visible from the first frame as a coarse block mosaic of its
+own shape. Sweeping from left to right, each glyph's mosaic halves its cell
+size in hard steps until it is swapped for the crisp glyph. The sequence per
+glyph is `one block → 2×2 blocks → 4×4 → … → finest mosaic → clean glyph`,
+and because glyphs start a stagger apart, the leading letters are crisp while
+the trailing ones are still large blocks. No real glyph is visible before its
+mosaic has finished.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `previewDuration` | `900` | Milliseconds from the first scattered pixel to fully formed pixelated text |
-| `pixelSize` | `"auto"` | Cell size in CSS pixels; `"auto"` is the font size ÷ 8, clamped to 2–16 |
-| `scatter` | `0.75` | Radius, in em, that pixels start scattered from their final cell |
-| `revealDelay` | `0` | Milliseconds to hold the pixelated text before it resolves |
-| `revealDuration` | `450` | Length of the resolve: finer pixels, then the crossfade to clean text |
-| `easing` | `"cubic-bezier(0.2, 0.8, 0.2, 1)"` | Easing of each pixel's convergence and of the crossfade |
-| `initialDelay` | `0` | Milliseconds to wait before the first pixel |
+| `stagger` | `"auto"` | Milliseconds between adjacent glyphs starting to resolve; `"auto"` spreads the sweep over 900ms, clamped to 12–140ms per glyph |
+| `stepDuration` | `90` | Milliseconds each mosaic level is held |
+| `pixelSize` | `"auto"` | Finest mosaic cell in CSS pixels; `"auto"` is the font size ÷ 16, at least 2 |
+| `revealDelay` | `0` | Milliseconds to hold the finest mosaic before the cut to the clean glyph |
+| `easing` | `"linear"` | Easing of a glyph's progress through its levels; `linear` holds every level equally |
+| `initialDelay` | `0` | Milliseconds to wait before the first frame |
 
-How the preview is built:
+A single word at 130ms stagger and 90ms steps reads as the classic
+letter-by-letter resolve; the automatic stagger keeps a whole paragraph to a
+wave of about a second.
+
+How the mosaic is built:
 
 - The text is split and laid out exactly as in the other modes, with every
   unit transparent. The final position, size, wrapping, and alignment are
-  therefore fixed from the first frame, and nothing shifts when the text
-  appears.
+  therefore fixed from the first frame, and nothing shifts when a glyph cuts
+  to text.
 - Each glyph is rasterized into an offscreen canvas at its own DOM box, using
   the host's computed font, weight, style, size, colour, and `text-transform`.
-  The raster is averaged into a grid of `pixelSize` cells; cells that contain
-  glyph ink become pixels. The preview is built from the real letter shapes,
-  not from noise over a rectangle.
-- A transparent canvas overlay sits inside the host, absolutely positioned and
-  `pointer-events: none`, so it never takes part in layout. It bleeds past the
-  text box by the scatter radius so pixels can start outside the glyphs.
-- Pixels appear scattered around their cells, drift, flicker, and converge on
-  their cells in a mostly reading-order sweep. Short-lived decoy pixels give
-  the opening an abstract, digital feel. Movement snaps to the grid.
-- After `previewDuration` (plus `revealDelay`), the raster is redrawn at
-  halving cell sizes down to the anti-aliased glyphs while the real text fades
-  in on top and the overlay fades out. The overlay is removed when finished,
-  leaving plain DOM text with no pixelation.
-- The overlay's opacity animation is the clock for the whole preview; the
-  canvas is repainted from its `currentTime` every frame. Pausing, finishing,
-  or cancelling that animation drives the canvas exactly like the unit
+  Its ink bounds are measured, and a grid anchored to those bounds is
+  stretched to tile them exactly at every level: the coarsest level is one
+  block the size of the glyph, the next 2×2, and so on, halving until the
+  cell would drop below `pixelSize`.
+- A cell is drawn when 45% of it is ink (30% for the single-block level).
+  Cells that fall short are dropped, so coarse levels read as digital
+  fragments of the letter rather than as a filled rectangle.
+- A transparent canvas overlay sits over the host's padding box, absolutely
+  positioned and `pointer-events: none`, so it never takes part in layout.
+  Each frame fills every unresolved glyph's mosaic at its current level in
+  the host's text colour; blocks are solid, with no fading or motion.
+- Glyph `n` (whitespace excluded) starts resolving at `n × stagger`, holds
+  each level for `stepDuration`, holds the finest level for `revealDelay`,
+  then cuts to the real glyph with a zero-duration opacity animation. The
+  overlay is removed when the last glyph is crisp, leaving plain DOM text.
+- The overlay's animation is the clock for the whole preview; the canvas is
+  repainted from its `currentTime` every frame. Pausing, finishing, or
+  cancelling that animation drives the canvas exactly like the unit
   animations, so `stop()`, `destroy()`, `finished`, and hidden-tab throttling
   behave as in the other modes.
-- The look (ink threshold, travel fraction, order bias, drift, decoy ratio,
-  flicker step, particle budget) lives in the frozen `PIXEL_TUNING` object in
-  `linetxt.js`; the same text always produces the same scatter pattern.
+- The look (coarsest cell, automatic sizes, thresholds, sweep budget) lives in
+  the frozen `PIXEL_TUNING` object in `linetxt.js`. The effect is fully
+  deterministic: the same text renders the same frames every time.
 
-Edge cases: a single character gets its own small preview; long copy grows the
-cell size automatically so the particle count stays within budget; multiline
-and wrapped text are sampled per glyph box, so every line is covered. When the
-document has no 2D canvas, or the host has no size, the text is simply shown.
-Reduced motion renders static text as in every mode.
+Edge cases: a single character resolves through its own levels; long copy
+uses a faster automatic stagger so the sweep still completes in about a
+second; multiline and wrapped text continue the sweep across lines in reading
+order. When the document has no 2D canvas, or the host has no size, the text
+is simply shown. Reduced motion renders static text as in every mode.
 
 The host receives `position: relative` only when it was `static`, so the
 overlay has a containing block; `destroy()` restores the inline value.
 
 ```js
-linetxt(element, { type: "pixel", previewDuration: 900, pixelSize: "auto" })
+linetxt(element, { type: "pixel", stagger: 130, stepDuration: 90 })
 ```
 
 ## Host and accessibility
@@ -244,9 +252,10 @@ handling, and the playback lifecycle are already shared.
   `cubic-bezier(0.2, 0.8, 0.2, 1)`, and no blur at any frame.
 - Confirm spaces, punctuation, emoji, and non-Latin graphemes remain intact.
 - Confirm multiline text wraps only between words, never inside a word.
-- Confirm `pixel` shows no real glyph before the pixel preview has completed,
-  that the pixels trace the letter shapes rather than a rectangle of noise,
-  and that the finished text is crisp with the overlay removed.
+- Confirm `pixel` shows every glyph as blocks from the first frame, that
+  glyphs sharpen in hard steps from left to right, that no real glyph is
+  visible before its mosaic has finished, and that the finished text is crisp
+  with the overlay removed.
 - Confirm no exit animation runs unless explicitly requested.
 
 ## Examples

@@ -40,39 +40,38 @@ const GENTLE_DEFAULTS = Object.freeze({
 })
 
 const PIXEL_DEFAULTS = Object.freeze({
-    previewDuration: 900,
+    stagger: "auto",
+    stepDuration: 90,
     pixelSize: "auto",
-    scatter: 0.75,
-    revealDuration: 450,
     revealDelay: 0,
-    easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+    easing: "linear",
     initialDelay: 0,
 })
 
 /**
- * Look-and-feel constants of the pixel mode. They shape the preview rather
+ * Look-and-feel constants of the pixel mode. They shape the mosaic rather
  * than its timing, so they are tuning values rather than per-call options.
  * Adjust them here when the whole effect should change.
  */
 export const PIXEL_TUNING = Object.freeze({
-    /** Automatic pixel size is the font size divided by this. */
-    autoSizeDivisor: 8,
+    /** The coarsest mosaic cell, in em: one block per glyph. */
+    coarsestCell: 1.1,
+    /** Automatic finest cell is the font size divided by this. */
+    autoSizeDivisor: 16,
     minPixelSize: 2,
-    maxPixelSize: 16,
-    /** The pixel size grows until the glyph cell count fits this budget. */
-    maxPixels: 6000,
-    /** Minimum glyph coverage (0–1) for a grid cell to become a pixel. */
-    inkThreshold: 0.14,
-    /** Fraction of previewDuration each pixel spends converging on its cell. */
-    travel: 0.5,
-    /** 0 = pixels arrive in random order, 1 = strictly in reading order. */
-    orderBias: 0.5,
-    /** Distance, in em, a scattered pixel wanders before it converges. */
-    drift: 0.35,
-    /** Short-lived noise pixels per glyph pixel during the scattered phase. */
-    decoyRatio: 0.35,
-    /** Milliseconds per flicker step while a pixel is still unsettled. */
-    flickerInterval: 45,
+    /** Raster alpha (0–255) that counts as ink when measuring glyph bounds. */
+    inkAlpha: 40,
+    /** Automatic stagger spreads the sweep over this many milliseconds… */
+    autoSweep: 900,
+    /** …but never faster or slower per character than these bounds. */
+    autoStaggerMin: 12,
+    autoStaggerMax: 140,
+    /** A cell is drawn when this share of it is glyph ink. Weak cells drop
+        out, which is what makes coarse levels read as digital fragments. */
+    inkThreshold: 0.45,
+    /** The single-block level uses this lower bar so every glyph is at least
+        hinted at before its mosaic starts to resolve. */
+    coarseThreshold: 0.3,
     /** Raster oversampling, capped by the device pixel ratio. */
     sampleScale: 2,
 })
@@ -195,8 +194,9 @@ export function parseEasing(value) {
 }
 
 /**
- * Resolves the pixel mode's cell size in CSS pixels. `"auto"` derives it
- * from the font size so the same call looks right on a caption and a hero.
+ * Resolves the pixel mode's finest mosaic cell in CSS pixels. `"auto"`
+ * derives it from the font size so the same call looks right on a caption
+ * and a hero.
  *
  * @param {"auto"|number} pixelSize
  * @param {number} fontSize
@@ -204,11 +204,46 @@ export function parseEasing(value) {
 export function resolvePixelSize(pixelSize, fontSize) {
     if (pixelSize === "auto" || pixelSize == null) {
         const auto = Math.round((Number(fontSize) || 0) / PIXEL_TUNING.autoSizeDivisor)
-        return Math.min(PIXEL_TUNING.maxPixelSize, Math.max(PIXEL_TUNING.minPixelSize, auto))
+        return Math.max(PIXEL_TUNING.minPixelSize, auto)
     }
 
     const size = Number(pixelSize)
     return Number.isFinite(size) && size >= 1 ? size : PIXEL_TUNING.minPixelSize
+}
+
+/**
+ * The mosaic cell sizes a glyph passes through, coarsest first: one block
+ * per glyph, halving each step, never finer than `finest`.
+ *
+ * @param {number} fontSize
+ * @param {number} finest
+ */
+export function mosaicLevels(fontSize, finest) {
+    const levels = []
+    let cell = Math.max(finest, (Number(fontSize) || 0) * PIXEL_TUNING.coarsestCell)
+    do {
+        levels.push(cell)
+        cell /= 2
+    } while (cell >= finest)
+    return levels
+}
+
+/**
+ * Milliseconds between adjacent characters starting to resolve. `"auto"`
+ * spreads the sweep over a fixed budget so a word and a paragraph both read
+ * as one left-to-right wave.
+ *
+ * @param {"auto"|number} stagger
+ * @param {number} count Characters taking part in the sweep
+ */
+export function resolveStagger(stagger, count) {
+    if (stagger === "auto" || stagger == null) {
+        if (count <= 1) return 0
+        const spread = PIXEL_TUNING.autoSweep / (count - 1)
+        return Math.min(PIXEL_TUNING.autoStaggerMax, Math.max(PIXEL_TUNING.autoStaggerMin, spread))
+    }
+
+    return Math.max(0, Number(stagger) || 0)
 }
 
 /**
@@ -220,23 +255,24 @@ export function resolvePixelSize(pixelSize, fontSize) {
  * @param {Uint8ClampedArray|number[]} data
  * @param {number} width
  * @param {number} height
- * @param {number} cell
+ * @param {number} cell Cell width, and height unless `cellHeight` is given
+ * @param {number} [cellHeight]
  */
-export function sampleCoverage(data, width, height, cell) {
+export function sampleCoverage(data, width, height, cell, cellHeight = cell) {
     // ceil() can open a trailing cell whose rounded start lies past the
     // raster edge; trim it so every cell holds at least one raster pixel.
-    const count = (extent) => {
-        let cells = extent > 0 && cell > 0 ? Math.ceil(extent / cell) : 0
-        while (cells > 0 && Math.round((cells - 1) * cell) >= extent) cells -= 1
+    const count = (extent, size) => {
+        let cells = extent > 0 && size > 0 ? Math.ceil(extent / size) : 0
+        while (cells > 0 && Math.round((cells - 1) * size) >= extent) cells -= 1
         return cells
     }
-    const columns = count(width)
-    const rows = count(height)
+    const columns = count(width, cell)
+    const rows = count(height, cellHeight)
     const coverage = new Float32Array(columns * rows)
 
     for (let row = 0; row < rows; row += 1) {
-        const y0 = Math.round(row * cell)
-        const y1 = Math.min(height, Math.round((row + 1) * cell))
+        const y0 = Math.round(row * cellHeight)
+        const y1 = Math.min(height, Math.round((row + 1) * cellHeight))
 
         for (let column = 0; column < columns; column += 1) {
             const x0 = Math.round(column * cell)
@@ -254,37 +290,6 @@ export function sampleCoverage(data, width, height, cell) {
     }
 
     return { columns, rows, coverage }
-}
-
-/** FNV-1a, so the same text always seeds the same scatter pattern. */
-function hashString(value) {
-    let hash = 0x811c9dc5
-    for (let index = 0; index < value.length; index += 1) {
-        hash ^= value.charCodeAt(index)
-        hash = Math.imul(hash, 0x01000193)
-    }
-    return hash >>> 0
-}
-
-/** mulberry32: a tiny seeded generator, deterministic per text. */
-function createRandom(seed) {
-    let state = seed >>> 0
-    return () => {
-        state = (state + 0x6d2b79f5) >>> 0
-        let t = state
-        t = Math.imul(t ^ (t >>> 15), t | 1)
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-    }
-}
-
-/** Stateless hash of two integers to 0–1, used for per-frame flicker. */
-function hashNoise(a, b) {
-    let hash = Math.imul(a, 0x27d4eb2d) ^ Math.imul(b + 0x9e3779b9, 0x85ebca6b)
-    hash ^= hash >>> 13
-    hash = Math.imul(hash, 0xc2b2ae35)
-    hash ^= hash >>> 16
-    return (hash >>> 0) / 4294967296
 }
 
 function clamp01(value) {
@@ -385,10 +390,8 @@ function prefersReducedMotion(element) {
  *   duration?: number,
  *   y?: number,
  *   lineSource?: "auto"|"text"|"visual",
- *   previewDuration?: number,
+ *   stepDuration?: number,
  *   pixelSize?: "auto"|number,
- *   scatter?: number,
- *   revealDuration?: number,
  *   revealDelay?: number
  * }} options
  */
@@ -420,10 +423,8 @@ export function linetxt(element, options = {}) {
         initialDelay: nonNegative("initialDelay"),
     }
     if (type === "pixel") {
-        settings.previewDuration = nonNegative("previewDuration")
-        settings.revealDuration = nonNegative("revealDuration")
+        settings.stepDuration = nonNegative("stepDuration")
         settings.revealDelay = nonNegative("revealDelay")
-        settings.scatter = nonNegative("scatter")
     }
 
     const originalNodes = Array.from(element.childNodes)
@@ -626,10 +627,10 @@ export function linetxt(element, options = {}) {
     }
 
     /**
-     * Rasterizes every glyph at its own DOM box into an offscreen canvas.
-     * Positions come from layout and shapes from the host's computed font,
-     * so the raster lines up with the final text at any width, alignment,
-     * or line count.
+     * Rasterizes every glyph at its own DOM box into an offscreen canvas and
+     * returns that raster with each glyph's box. Positions come from layout
+     * and shapes from the host's computed font, so the mosaic lines up with
+     * the final text at any width, alignment, or line count.
      */
     function rasterizeGlyphs(built, geometry, style, color, scale) {
         const doc = element.ownerDocument
@@ -650,6 +651,7 @@ export function linetxt(element, options = {}) {
         const metrics = ctx.measureText("Hg")
         const ascent = metrics.fontBoundingBoxAscent ?? fontSize * 0.8
         const descent = metrics.fontBoundingBoxDescent ?? fontSize * 0.2
+        const boxes = []
 
         for (const word of built.words) {
             for (const [index, unit] of word.units.entries()) {
@@ -666,16 +668,89 @@ export function linetxt(element, options = {}) {
                 const height = rect.height * geometry.zoom
                 const baseline = top + (height - ascent - descent) / 2 + ascent
                 ctx.fillText(transformGrapheme(unit.grapheme, style.textTransform, index === 0), x, baseline)
+                boxes.push({ unit, x, y: top, width: rect.width * geometry.zoom, height })
             }
         }
 
-        return raster
+        return { raster, boxes }
     }
 
     /**
-     * Builds everything the pixel preview draws from: the overlay canvas,
-     * the converging pixel particles, the decoy noise, and the progressively
-     * finer rasters used while the pixels resolve into text.
+     * Builds one filled shape per glyph and mosaic level. The grid is
+     * anchored to the glyph's ink bounds and stretched to tile them exactly,
+     * so the coarsest level is one block the size of the glyph and finer
+     * levels subdivide it; cells whose coverage falls short are dropped.
+     */
+    function buildMosaic(data, raster, box, levels, scale) {
+        const view = element.ownerDocument.defaultView
+        const bx0 = Math.max(0, Math.floor(box.x * scale))
+        const by0 = Math.max(0, Math.floor(box.y * scale))
+        const bx1 = Math.min(raster.width, Math.ceil((box.x + box.width) * scale))
+        const by1 = Math.min(raster.height, Math.ceil((box.y + box.height) * scale))
+
+        // Ink bounds within the glyph box.
+        let x0 = bx1
+        let y0 = by1
+        let x1 = bx0
+        let y1 = by0
+        for (let y = by0; y < by1; y += 1) {
+            for (let x = bx0; x < bx1; x += 1) {
+                if (data[(y * raster.width + x) * 4 + 3] < PIXEL_TUNING.inkAlpha) continue
+                if (x < x0) x0 = x
+                if (x >= x1) x1 = x + 1
+                if (y < y0) y0 = y
+                if (y >= y1) y1 = y + 1
+            }
+        }
+        const width = x1 - x0
+        const height = y1 - y0
+        if (width <= 0 || height <= 0) return null
+
+        // Crop the ink bounds out of the raster once so every level samples
+        // a small, contiguous buffer.
+        const crop = new Uint8ClampedArray(width * height * 4)
+        for (let y = 0; y < height; y += 1) {
+            const from = ((y0 + y) * raster.width + x0) * 4
+            crop.set(data.subarray(from, from + width * 4), y * width * 4)
+        }
+
+        const shapes = []
+        for (const [index, cell] of levels.entries()) {
+            const threshold = index === 0 ? PIXEL_TUNING.coarseThreshold : PIXEL_TUNING.inkThreshold
+            const columns = Math.max(1, Math.ceil(width / (cell * scale)))
+            const rows = Math.max(1, Math.ceil(height / (cell * scale)))
+            const cellWidth = width / columns
+            const cellHeight = height / rows
+            const grid = sampleCoverage(crop, width, height, cellWidth, cellHeight)
+
+            const rects = []
+            for (let row = 0; row < grid.rows; row += 1) {
+                for (let column = 0; column < grid.columns; column += 1) {
+                    if (grid.coverage[row * grid.columns + column] < threshold) continue
+                    rects.push([
+                        (x0 + column * cellWidth) / scale,
+                        (y0 + row * cellHeight) / scale,
+                        cellWidth / scale,
+                        cellHeight / scale,
+                    ])
+                }
+            }
+
+            let path = null
+            if (typeof view.Path2D === "function") {
+                path = new view.Path2D()
+                for (const [left, top, w, h] of rects) path.rect(left, top, w, h)
+            }
+            shapes.push({ rects, path })
+        }
+
+        return shapes
+    }
+
+    /**
+     * Builds everything the pixel preview draws from: the overlay canvas and,
+     * for every glyph, its mosaic shapes per level plus the moment it is
+     * swapped for the real glyph.
      */
     function createPixelField(built) {
         const doc = element.ownerDocument
@@ -699,201 +774,83 @@ export function linetxt(element, options = {}) {
         const fontSize = parseFloat(style.fontSize) || 16
         const color = style.color
         const scale = Math.min(PIXEL_TUNING.sampleScale, Math.max(1, view.devicePixelRatio || 1))
-        const raster = rasterizeGlyphs(built, geometry, style, color, scale)
-        if (!raster) return null
+        const rasterized = rasterizeGlyphs(built, geometry, style, color, scale)
+        if (!rasterized) return null
 
+        const { raster, boxes } = rasterized
         const data = raster.getContext("2d").getImageData(0, 0, raster.width, raster.height).data
-        const sampleAt = (size) => sampleCoverage(data, raster.width, raster.height, size * scale)
-        const inkCells = (grid) => {
-            let count = 0
-            for (const value of grid.coverage) if (value > PIXEL_TUNING.inkThreshold) count += 1
-            return count
-        }
+        const levels = mosaicLevels(fontSize, resolvePixelSize(settings.pixelSize, fontSize))
+        const stagger = resolveStagger(settings.stagger, boxes.length)
+        const stepTotal = levels.length * settings.stepDuration
 
-        // Grow the cell until the particle count fits the budget, so a long
-        // paragraph stays smooth rather than drawing tens of thousands of
-        // rectangles per frame.
-        let cell = resolvePixelSize(settings.pixelSize, fontSize)
-        let grid = sampleAt(cell)
-        while (inkCells(grid) > PIXEL_TUNING.maxPixels && cell < PIXEL_TUNING.maxPixelSize * 4) {
-            cell += 1
-            grid = sampleAt(cell)
-        }
-
-        const random = createRandom(hashString(text))
-        const inkAlpha = (coverage) => 0.4 + 0.6 * Math.min(1, coverage / 0.7)
-        const scatterRadius = settings.scatter * fontSize
-        const driftRadius = PIXEL_TUNING.drift * fontSize
-        const travel = PIXEL_TUNING.travel
-        const appearWindow = 0.2
-        const startWindow = Math.max(0, 1 - travel - 0.08)
-        const pixels = []
-
-        for (let row = 0; row < grid.rows; row += 1) {
-            for (let column = 0; column < grid.columns; column += 1) {
-                const coverage = grid.coverage[row * grid.columns + column]
-                if (coverage <= PIXEL_TUNING.inkThreshold) continue
-
-                const tx = column * cell
-                const ty = row * cell
-                const angle = random() * Math.PI * 2
-                const distance = Math.sqrt(random()) * scatterRadius
-                const driftAngle = random() * Math.PI * 2
-                const driftDistance = random() * driftRadius
-                const reading = 0.7 * (tx / geometry.width) + 0.3 * (ty / geometry.height)
-                const order = PIXEL_TUNING.orderBias * reading + (1 - PIXEL_TUNING.orderBias) * random()
-                const start = 0.08 + startWindow * order
-
-                pixels.push({
-                    index: pixels.length,
-                    tx,
-                    ty,
-                    alpha: inkAlpha(coverage),
-                    sx: tx + Math.cos(angle) * distance,
-                    sy: ty + Math.sin(angle) * distance,
-                    dx: Math.cos(driftAngle) * driftDistance,
-                    dy: Math.sin(driftAngle) * driftDistance,
-                    appear: Math.min(start, random() * appearWindow),
-                    start,
-                })
-            }
-        }
-
-        const bleed = Math.ceil(scatterRadius + driftRadius + cell)
-        const decoys = []
-        const decoyCount = Math.max(4, Math.round(pixels.length * PIXEL_TUNING.decoyRatio))
-        for (let index = 0; index < decoyCount; index += 1) {
-            const from = random() * 0.5
-            const driftAngle = random() * Math.PI * 2
-            const driftDistance = random() * driftRadius * 2
-            decoys.push({
-                x: -bleed + random() * (geometry.width + 2 * bleed),
-                y: -bleed + random() * (geometry.height + 2 * bleed),
-                dx: Math.cos(driftAngle) * driftDistance,
-                dy: Math.sin(driftAngle) * driftDistance,
-                from,
-                to: Math.min(0.8, from + 0.1 + random() * 0.3),
-                alpha: 0.2 + random() * 0.25,
+        const glyphs = []
+        for (const [order, box] of boxes.entries()) {
+            const shapes = buildMosaic(data, raster, box, levels, scale)
+            if (!shapes) continue
+            const start = order * stagger
+            glyphs.push({
+                unit: box.unit,
+                shapes,
+                start,
+                crispAt: start + stepTotal + settings.revealDelay,
             })
         }
-
-        // Resolve levels: the same glyphs at halving cell sizes, ending on the
-        // anti-aliased raster itself so the hand-off to DOM text is seamless.
-        const gapFor = (size) => (size >= 5 ? 1 : 0)
-        const levelSizes = [...new Set([cell, Math.round(cell / 2), Math.round(cell / 4)])]
-            .filter((size) => size > 1)
-            .sort((a, b) => b - a)
-        const levels = levelSizes.map((size) => {
-            const layer = doc.createElement("canvas")
-            layer.width = raster.width
-            layer.height = raster.height
-            const ctx = layer.getContext("2d")
-            ctx.scale(scale, scale)
-            ctx.fillStyle = color
-
-            const levelGrid = sampleAt(size)
-            const gap = gapFor(size)
-            for (let row = 0; row < levelGrid.rows; row += 1) {
-                for (let column = 0; column < levelGrid.columns; column += 1) {
-                    const coverage = levelGrid.coverage[row * levelGrid.columns + column]
-                    if (coverage <= PIXEL_TUNING.inkThreshold) continue
-                    ctx.globalAlpha = inkAlpha(coverage)
-                    ctx.fillRect(column * size, row * size, size - gap, size - gap)
-                }
-            }
-            return layer
-        })
-        levels.push(raster)
 
         const canvas = doc.createElement("canvas")
         canvas.className = PIXELS_CLASS
         canvas.setAttribute("aria-hidden", "true")
-        canvas.width = Math.ceil((geometry.width + 2 * bleed) * scale)
-        canvas.height = Math.ceil((geometry.height + 2 * bleed) * scale)
+        canvas.width = Math.ceil(geometry.width * scale)
+        canvas.height = Math.ceil(geometry.height * scale)
         Object.assign(canvas.style, {
-            left: `${-bleed}px`,
-            top: `${-bleed}px`,
-            width: `${geometry.width + 2 * bleed}px`,
-            height: `${geometry.height + 2 * bleed}px`,
+            left: "0px",
+            top: "0px",
+            width: `${geometry.width}px`,
+            height: `${geometry.height}px`,
         })
 
         const ctx = canvas.getContext("2d")
-        ctx.setTransform(scale, 0, 0, scale, bleed * scale, bleed * scale)
-        ctx.imageSmoothingEnabled = false
+        ctx.setTransform(scale, 0, 0, scale, 0, 0)
 
         return {
             canvas,
             ctx,
-            bleed,
-            cell,
-            gap: gapFor(cell),
             width: geometry.width,
             height: geometry.height,
             color,
-            pixels,
-            decoys,
             levels,
+            stepTotal,
+            glyphs,
             ease: parseEasing(settings.easing),
+            duration: glyphs.length > 0 ? Math.max(...glyphs.map((glyph) => glyph.crispAt)) : 0,
         }
     }
 
-    /** Draws the scattered-to-converged phase at preview progress u (0–1). */
-    function drawConverge(field, u, time) {
-        const { ctx, cell, gap, pixels, decoys, ease } = field
-        const size = cell - gap
-        const snap = (value) => Math.round(value / cell) * cell
-        const flickerStep = Math.floor(time / PIXEL_TUNING.flickerInterval)
-        ctx.fillStyle = field.color
+    /** The mosaic level a glyph shows at the clock time, or -1 once crisp. */
+    function mosaicLevelAt(field, glyph, time) {
+        if (time >= glyph.crispAt) return -1
+        if (time < glyph.start || field.stepTotal <= 0) return time < glyph.start ? 0 : field.levels.length - 1
 
-        for (const decoy of decoys) {
-            if (u < decoy.from || u >= decoy.to) continue
-            const life = (u - decoy.from) / (decoy.to - decoy.from)
-            ctx.globalAlpha = decoy.alpha * Math.sin(life * Math.PI)
-            ctx.fillRect(snap(decoy.x + decoy.dx * u), snap(decoy.y + decoy.dy * u), size, size)
-        }
-
-        for (const pixel of pixels) {
-            if (u < pixel.appear) continue
-
-            const progress = clamp01((u - pixel.start) / PIXEL_TUNING.travel)
-            const eased = ease(progress)
-            const settledAt = Math.min(u, pixel.start)
-            const fromX = pixel.sx + pixel.dx * settledAt
-            const fromY = pixel.sy + pixel.dy * settledAt
-            const x = snap(fromX + (pixel.tx - fromX) * eased)
-            const y = snap(fromY + (pixel.ty - fromY) * eased)
-
-            let alpha = pixel.alpha * clamp01((u - pixel.appear) / 0.08) * (0.55 + 0.45 * eased)
-            if (progress < 0.9 && hashNoise(pixel.index, flickerStep) < 0.2) alpha *= 0.25
-
-            ctx.globalAlpha = alpha
-            ctx.fillRect(x, y, size, size)
-        }
-
-        ctx.globalAlpha = 1
+        const progress = field.ease(clamp01((time - glyph.start) / field.stepTotal))
+        return Math.min(field.levels.length - 1, Math.floor(progress * field.levels.length))
     }
 
     /** Draws one frame of the pixel preview for the clock time in ms. */
     function drawPixelFrame(field, time) {
-        const { ctx, bleed, width, height, levels } = field
-        const previewEnd = settings.previewDuration + settings.revealDelay
-        ctx.clearRect(-bleed, -bleed, width + 2 * bleed, height + 2 * bleed)
+        const { ctx, width, height, glyphs } = field
+        ctx.clearRect(0, 0, width, height)
+        ctx.fillStyle = field.color
 
-        if (time < settings.previewDuration) {
-            drawConverge(field, time / settings.previewDuration, time)
-            return
+        for (const glyph of glyphs) {
+            const level = mosaicLevelAt(field, glyph, time)
+            if (level < 0) continue
+
+            const shape = glyph.shapes[level]
+            if (shape.path) {
+                ctx.fill(shape.path)
+            } else {
+                for (const [left, top, w, h] of shape.rects) ctx.fillRect(left, top, w, h)
+            }
         }
-
-        // Refinement steps are linear in time so every level gets an equal,
-        // visible share of the reveal; the easing shapes the crossfade instead.
-        let level = 0
-        if (time >= previewEnd && settings.revealDuration > 0) {
-            const progress = clamp01((time - previewEnd) / settings.revealDuration)
-            level = Math.min(levels.length - 1, Math.floor(progress * levels.length))
-        }
-
-        ctx.globalAlpha = 1
-        ctx.drawImage(levels[level], 0, 0, width, height)
     }
 
     /**
@@ -912,10 +869,11 @@ export function linetxt(element, options = {}) {
     }
 
     /**
-     * Pixel reveal: the glyphs are sampled into a cell grid, drawn as
-     * scattered pixels that converge on their cells, held as pixelated text,
-     * then resolved through finer rasters while the real units fade in on
-     * top. The units occupy their final boxes throughout, so nothing shifts.
+     * Pixel reveal: every glyph is visible from the first frame as a coarse
+     * block mosaic of its own shape. Sweeping left to right, each glyph's
+     * mosaic halves its cell size in hard steps until it is swapped for the
+     * crisp glyph. The units occupy their final boxes throughout, so nothing
+     * shifts.
      */
     async function runPixel(built, signal) {
         const { units } = built
@@ -927,9 +885,7 @@ export function linetxt(element, options = {}) {
         if (!await fontsReady(signal)) return false
 
         const field = createPixelField(built)
-        const previewEnd = settings.previewDuration + settings.revealDelay
-        const total = previewEnd + settings.revealDuration
-        if (!field || total === 0) {
+        if (!field || field.duration === 0) {
             showText()
             return true
         }
@@ -937,26 +893,19 @@ export function linetxt(element, options = {}) {
         ensurePositioned()
         element.append(field.canvas)
 
-        // The overlay's opacity keyframes double as the preview's clock: it
-        // stays fully visible until the resolve phase, then fades out under
-        // the arriving text.
-        const fadeFrom = (previewEnd + settings.revealDuration * 0.55) / total
+        // The overlay's animation is the preview's clock. It carries no
+        // visible change of its own; every frame is painted from it.
         const clock = field.canvas.animate(
-            [
-                { opacity: 1, offset: 0 },
-                { opacity: 1, offset: fadeFrom, easing: settings.easing },
-                { opacity: 0, offset: 1 },
-            ],
-            { duration: total, easing: "linear", fill: "both" },
+            [{ opacity: 1 }, { opacity: 1 }],
+            { duration: field.duration, easing: "linear", fill: "both" },
         )
+
+        // Each glyph cuts hard from its finest mosaic to the real character;
+        // whitespace, which draws nothing, appears with the first glyph.
+        const crispAt = new Map(field.glyphs.map((glyph) => [glyph.unit, glyph.crispAt]))
         const reveals = units.map((unit) => unit.node.animate(
             [{ opacity: 0 }, { opacity: 1 }],
-            {
-                delay: previewEnd,
-                duration: settings.revealDuration,
-                easing: settings.easing,
-                fill: "both",
-            },
+            { delay: crispAt.get(unit) ?? 0, duration: 0, fill: "both" },
         ))
 
         renderPixelFrames(field, clock, signal).catch(() => undefined)
