@@ -93,33 +93,3 @@ blocks trace the real letter shapes. A transparent canvas overlay paints the
 blocks in the text's colour; it never takes part in layout, so the text box
 never shifts, and it is removed when the reveal finishes. Reduced-motion
 settings render the text statically, as in every mode.
-
-## Example page
-
-[assets/waapi/example.html](./assets/waapi/example.html) is a minimal
-standalone page that calls each mode directly, with no build step and nothing
-but the two runtime files.
-
-```bash
-npm run serve
-```
-
-Then open <http://localhost:4173/assets/waapi/example.html>.
-
-An interactive playground with live controls for every parameter is hosted
-at <https://linetxt.vercel.app/>. It lives in a separate project,
-`linetxt-demo`, so this repository stays limited to the skill itself.
-
-## Tests
-
-Pure logic — grapheme splitting, line grouping, the gentle contract, easing
-parsing, pixel levels, and pixel coverage sampling — runs in Node with no dependencies:
-
-```bash
-npm test
-```
-
-DOM and timing behaviour needs a real browser, because jsdom does not implement
-the Web Animations API. Start the server above and open
-<http://localhost:4173/tests/browser/>. The page reports
-`RESULT ALL PASS — n/n passed` and sets the document title to `linetxt PASS`.
