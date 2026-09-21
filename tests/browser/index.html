@@ -60,7 +60,7 @@
     <script type="module">
         // Cache-busted so a run always exercises the file on disk rather than
         // a copy the browser kept from an earlier version of the module.
-        const { linetxt, mosaicLevels, resolvePixelSize, resolveStagger } = await import(`../../assets/waapi/linetxt.js?v=${Date.now()}`)
+        const { linetxt, pixelLevels, resolvePixelSize, resolveStagger } = await import(`../../assets/waapi/linetxt.js?v=${Date.now()}`)
 
         const stage = document.querySelector("#stage")
         const results = document.querySelector("#results")
@@ -429,9 +429,9 @@
             )
 
             // Expected schedule: glyphs (not spaces) resolve in order, each
-            // through every mosaic level, then cut hard to the real glyph.
+            // through every pixel level, then cut hard to the real glyph.
             const fontSize = parseFloat(getComputedStyle(node).fontSize)
-            const levels = mosaicLevels(fontSize, resolvePixelSize("auto", fontSize)).length
+            const levels = pixelLevels(fontSize, resolvePixelSize("auto", fontSize)).length
             const glyphCount = text.replaceAll(" ", "").length
             const stagger = resolveStagger("auto", glyphCount)
             const expected = [...Array(glyphCount)].map((_, index) => index * stagger + levels * 90)
@@ -440,7 +440,7 @@
                 .map((unit) => unit.getAnimations()[0]?.effect.getTiming().delay)
             const clock = layer?.getAnimations()[0]
 
-            check("mosaic has more than one level at this size", levels > 1, String(levels))
+            check("pixel reveal has more than one level at this size", levels > 1, String(levels))
             check("glyphs cut to text in reading order, one stagger apart", String(glyphDelays) === String(expected), `${glyphDelays} vs ${expected}`)
             check("spaces show with the first glyph", units(node).filter((unit) => unit.textContent === " ").every((unit) => unit.getAnimations()[0]?.effect.getTiming().delay === 0))
             check("the cut to text is hard, not a fade", units(node).every((unit) => unit.getAnimations()[0]?.effect.getTiming().duration === 0))
@@ -471,11 +471,11 @@
             const layer = await pixelLayerReady(node)
 
             const fontSize = parseFloat(getComputedStyle(node).fontSize)
-            const levels = mosaicLevels(fontSize, 4).length
+            const levels = pixelLevels(fontSize, 4).length
             const expected = [...Array(5)].map((_, index) => index * 40 + levels * 50 + 100)
             const clock = layer?.getAnimations()[0]
             check("custom stagger and stepDuration set the schedule", String(delays(node)) === String(expected), `${delays(node)} vs ${expected}`)
-            check("revealDelay holds the finest mosaic before the cut", delays(node)[0] === levels * 50 + 100, String(delays(node)[0]))
+            check("revealDelay holds the finest pixel level before the cut", delays(node)[0] === levels * 50 + 100, String(delays(node)[0]))
             check("custom timing sets the clock length", clock?.effect.getTiming().duration === expected.at(-1), String(clock?.effect.getTiming().duration))
 
             await settle(node, controls)

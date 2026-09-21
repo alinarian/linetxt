@@ -7,7 +7,7 @@ import {
     TYPES,
     cubicBezier,
     groupByOffsetTop,
-    mosaicLevels,
+    pixelLevels,
     normalizeNewlines,
     parseEasing,
     resolvePixelSize,
@@ -123,8 +123,8 @@ test("resolvePixelSize honours an explicit size", () => {
     assert.equal(resolvePixelSize("6", 64), 6)
 })
 
-test("mosaicLevels halves from one block per glyph down to the finest cell", () => {
-    const levels = mosaicLevels(150, 9)
+test("pixelLevels halves from one block per glyph down to the finest cell", () => {
+    const levels = pixelLevels(150, 9)
     assert.equal(levels[0], 150 * PIXEL_TUNING.coarsestCell)
     for (let index = 1; index < levels.length; index += 1) {
         assert.equal(levels[index], levels[index - 1] / 2)
@@ -133,9 +133,9 @@ test("mosaicLevels halves from one block per glyph down to the finest cell", () 
     assert.ok(levels.at(-1) / 2 < 9, String(levels))
 })
 
-test("mosaicLevels always yields at least the single-block level", () => {
-    assert.deepEqual(mosaicLevels(10, 40), [40])
-    assert.equal(mosaicLevels(0, 2).length, 1)
+test("pixelLevels always yields at least the single-block level", () => {
+    assert.deepEqual(pixelLevels(10, 40), [40])
+    assert.equal(pixelLevels(0, 2).length, 1)
 })
 
 test("resolveStagger spreads the automatic sweep over a fixed budget", () => {

@@ -1,6 +1,6 @@
 ---
 name: linetxt
-description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal where each glyph resolves from a coarse block mosaic to crisp text in a left-to-right sweep. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
+description: Apply one of four text reveals to an element — typewriter typing, line-by-line upward reveal with a 100ms stagger, a gentle per-character rise, or a pixel reveal where each glyph resolves from a coarse block pixel to crisp text in a left-to-right sweep. Invoked as "$linetxt typewriter", "$linetxt line-reveal", "$linetxt gentle", or "$linetxt pixel". Ask the user which mode to use when the request does not name one; never pick a mode silently.
 ---
 
 # linetxt
@@ -33,7 +33,7 @@ missing or unknown, so a forgotten mode fails loudly instead of defaulting.
 | `typewriter` | Typing text character by character |
 | `line-reveal` | Headings and paragraphs made of multiple lines |
 | `gentle` | A polished, ready-made per-character reveal |
-| `pixel` | A digital entrance: each glyph sharpens from a block mosaic in hard steps, sweeping left to right |
+| `pixel` | A digital entrance: each glyph sharpens from pixel blocks in hard steps, sweeping left to right |
 
 ## Workflow
 
@@ -152,20 +152,20 @@ linetxt(element, { type: "gentle" })
 
 ## Mode 4 — pixel
 
-Every glyph is visible from the first frame as a coarse block mosaic of its
-own shape. Sweeping from left to right, each glyph's mosaic halves its cell
+Every glyph is visible from the first frame as a coarse pixel block of its
+own shape. Sweeping from left to right, each glyph's pixel cell halves its
 size in hard steps until it is swapped for the crisp glyph. The sequence per
-glyph is `one block → 2×2 blocks → 4×4 → … → finest mosaic → clean glyph`,
+glyph is `one block → 2×2 blocks → 4×4 → … → finest pixel level → clean glyph`,
 and because glyphs start a stagger apart, the leading letters are crisp while
 the trailing ones are still large blocks. No real glyph is visible before its
-mosaic has finished.
+pixel steps have finished.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `stagger` | `"auto"` | Milliseconds between adjacent glyphs starting to resolve; `"auto"` spreads the sweep over 900ms, clamped to 12–140ms per glyph |
-| `stepDuration` | `90` | Milliseconds each mosaic level is held |
-| `pixelSize` | `"auto"` | Finest mosaic cell in CSS pixels; `"auto"` is the font size ÷ 16, at least 2 |
-| `revealDelay` | `0` | Milliseconds to hold the finest mosaic before the cut to the clean glyph |
+| `stepDuration` | `90` | Milliseconds each pixel level is held |
+| `pixelSize` | `"auto"` | Finest pixel cell in CSS pixels; `"auto"` is the font size ÷ 16, at least 2 |
+| `revealDelay` | `0` | Milliseconds to hold the finest pixel level before the cut to the clean glyph |
 | `easing` | `"linear"` | Easing of a glyph's progress through its levels; `linear` holds every level equally |
 | `initialDelay` | `0` | Milliseconds to wait before the first frame |
 
@@ -173,7 +173,7 @@ A single word at 130ms stagger and 90ms steps reads as the classic
 letter-by-letter resolve; the automatic stagger keeps a whole paragraph to a
 wave of about a second.
 
-How the mosaic is built:
+How the pixel levels are built:
 
 - The text is split and laid out exactly as in the other modes, with every
   unit transparent. The final position, size, wrapping, and alignment are
@@ -190,7 +190,7 @@ How the mosaic is built:
   fragments of the letter rather than as a filled rectangle.
 - A transparent canvas overlay sits over the host's padding box, absolutely
   positioned and `pointer-events: none`, so it never takes part in layout.
-  Each frame fills every unresolved glyph's mosaic at its current level in
+  Each frame fills every unresolved glyph's pixel blocks at its current level in
   the host's text colour; blocks are solid, with no fading or motion.
 - Glyph `n` (whitespace excluded) starts resolving at `n × stagger`, holds
   each level for `stepDuration`, holds the finest level for `revealDelay`,
@@ -254,7 +254,7 @@ handling, and the playback lifecycle are already shared.
 - Confirm multiline text wraps only between words, never inside a word.
 - Confirm `pixel` shows every glyph as blocks from the first frame, that
   glyphs sharpen in hard steps from left to right, that no real glyph is
-  visible before its mosaic has finished, and that the finished text is crisp
+  visible before its pixel steps have finished, and that the finished text is crisp
   with the overlay removed.
 - Confirm no exit animation runs unless explicitly requested.
 

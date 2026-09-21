@@ -49,12 +49,12 @@ const PIXEL_DEFAULTS = Object.freeze({
 })
 
 /**
- * Look-and-feel constants of the pixel mode. They shape the mosaic rather
+ * Look-and-feel constants of the pixel mode. They shape the pixel blocks rather
  * than its timing, so they are tuning values rather than per-call options.
  * Adjust them here when the whole effect should change.
  */
 export const PIXEL_TUNING = Object.freeze({
-    /** The coarsest mosaic cell, in em: one block per glyph. */
+    /** The coarsest pixel cell, in em: one block per glyph. */
     coarsestCell: 1.1,
     /** Automatic finest cell is the font size divided by this. */
     autoSizeDivisor: 16,
@@ -70,7 +70,7 @@ export const PIXEL_TUNING = Object.freeze({
         out, which is what makes coarse levels read as digital fragments. */
     inkThreshold: 0.45,
     /** The single-block level uses this lower bar so every glyph is at least
-        hinted at before its mosaic starts to resolve. */
+        hinted at before its pixel steps start. */
     coarseThreshold: 0.3,
     /** Raster oversampling, capped by the device pixel ratio. */
     sampleScale: 2,
@@ -194,7 +194,7 @@ export function parseEasing(value) {
 }
 
 /**
- * Resolves the pixel mode's finest mosaic cell in CSS pixels. `"auto"`
+ * Resolves the pixel mode's finest pixel cell in CSS pixels. `"auto"`
  * derives it from the font size so the same call looks right on a caption
  * and a hero.
  *
@@ -212,13 +212,13 @@ export function resolvePixelSize(pixelSize, fontSize) {
 }
 
 /**
- * The mosaic cell sizes a glyph passes through, coarsest first: one block
+ * The pixel cell sizes a glyph passes through, coarsest first: one block
  * per glyph, halving each step, never finer than `finest`.
  *
  * @param {number} fontSize
  * @param {number} finest
  */
-export function mosaicLevels(fontSize, finest) {
+export function pixelLevels(fontSize, finest) {
     const levels = []
     let cell = Math.max(finest, (Number(fontSize) || 0) * PIXEL_TUNING.coarsestCell)
     do {
@@ -629,7 +629,7 @@ export function linetxt(element, options = {}) {
     /**
      * Rasterizes every glyph at its own DOM box into an offscreen canvas and
      * returns that raster with each glyph's box. Positions come from layout
-     * and shapes from the host's computed font, so the mosaic lines up with
+     * and shapes from the host's computed font, so the pixel blocks line up with
      * the final text at any width, alignment, or line count.
      */
     function rasterizeGlyphs(built, geometry, style, color, scale) {
@@ -676,12 +676,12 @@ export function linetxt(element, options = {}) {
     }
 
     /**
-     * Builds one filled shape per glyph and mosaic level. The grid is
+     * Builds one filled shape per glyph and pixel level. The grid is
      * anchored to the glyph's ink bounds and stretched to tile them exactly,
      * so the coarsest level is one block the size of the glyph and finer
      * levels subdivide it; cells whose coverage falls short are dropped.
      */
-    function buildMosaic(data, raster, box, levels, scale) {
+    function buildPixelShapes(data, raster, box, levels, scale) {
         const view = element.ownerDocument.defaultView
         const bx0 = Math.max(0, Math.floor(box.x * scale))
         const by0 = Math.max(0, Math.floor(box.y * scale))
@@ -749,7 +749,7 @@ export function linetxt(element, options = {}) {
 
     /**
      * Builds everything the pixel preview draws from: the overlay canvas and,
-     * for every glyph, its mosaic shapes per level plus the moment it is
+     * for every glyph, its pixel shapes per level plus the moment it is
      * swapped for the real glyph.
      */
     function createPixelField(built) {
@@ -779,13 +779,13 @@ export function linetxt(element, options = {}) {
 
         const { raster, boxes } = rasterized
         const data = raster.getContext("2d").getImageData(0, 0, raster.width, raster.height).data
-        const levels = mosaicLevels(fontSize, resolvePixelSize(settings.pixelSize, fontSize))
+        const levels = pixelLevels(fontSize, resolvePixelSize(settings.pixelSize, fontSize))
         const stagger = resolveStagger(settings.stagger, boxes.length)
         const stepTotal = levels.length * settings.stepDuration
 
         const glyphs = []
         for (const [order, box] of boxes.entries()) {
-            const shapes = buildMosaic(data, raster, box, levels, scale)
+            const shapes = buildPixelShapes(data, raster, box, levels, scale)
             if (!shapes) continue
             const start = order * stagger
             glyphs.push({
@@ -825,8 +825,8 @@ export function linetxt(element, options = {}) {
         }
     }
 
-    /** The mosaic level a glyph shows at the clock time, or -1 once crisp. */
-    function mosaicLevelAt(field, glyph, time) {
+    /** The pixel level a glyph shows at the clock time, or -1 once crisp. */
+    function pixelLevelAt(field, glyph, time) {
         if (time >= glyph.crispAt) return -1
         if (time < glyph.start || field.stepTotal <= 0) return time < glyph.start ? 0 : field.levels.length - 1
 
@@ -841,7 +841,7 @@ export function linetxt(element, options = {}) {
         ctx.fillStyle = field.color
 
         for (const glyph of glyphs) {
-            const level = mosaicLevelAt(field, glyph, time)
+            const level = pixelLevelAt(field, glyph, time)
             if (level < 0) continue
 
             const shape = glyph.shapes[level]
@@ -870,8 +870,8 @@ export function linetxt(element, options = {}) {
 
     /**
      * Pixel reveal: every glyph is visible from the first frame as a coarse
-     * block mosaic of its own shape. Sweeping left to right, each glyph's
-     * mosaic halves its cell size in hard steps until it is swapped for the
+     * block pixel of its own shape. Sweeping left to right, each glyph's
+     * pixel cell halves its size in hard steps until it is swapped for the
      * crisp glyph. The units occupy their final boxes throughout, so nothing
      * shifts.
      */
@@ -900,7 +900,7 @@ export function linetxt(element, options = {}) {
             { duration: field.duration, easing: "linear", fill: "both" },
         )
 
-        // Each glyph cuts hard from its finest mosaic to the real character;
+        // Each glyph cuts hard from its finest pixel level to the real character;
         // whitespace, which draws nothing, appears with the first glyph.
         const crispAt = new Map(field.glyphs.map((glyph) => [glyph.unit, glyph.crispAt]))
         const reveals = units.map((unit) => unit.node.animate(
