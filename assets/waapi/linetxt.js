@@ -46,7 +46,11 @@ const PIXEL_DEFAULTS = Object.freeze({
     revealDelay: 0,
     easing: "linear",
     initialDelay: 0,
+    sweep: "line",
+    lineSource: "auto",
 })
+
+const PIXEL_SWEEPS = Object.freeze(["line", "text", "none"])
 
 /**
  * Look-and-feel constants of the pixel mode. They shape the pixel blocks rather
@@ -392,7 +396,8 @@ function prefersReducedMotion(element) {
  *   lineSource?: "auto"|"text"|"visual",
  *   stepDuration?: number,
  *   pixelSize?: "auto"|number,
- *   revealDelay?: number
+ *   revealDelay?: number,
+ *   sweep?: "line"|"text"|"none"
  * }} options
  */
 export function linetxt(element, options = {}) {
@@ -425,6 +430,9 @@ export function linetxt(element, options = {}) {
     if (type === "pixel") {
         settings.stepDuration = nonNegative("stepDuration")
         settings.revealDelay = nonNegative("revealDelay")
+        if (!PIXEL_SWEEPS.includes(settings.sweep)) {
+            throw new TypeError(`linetxt pixel requires options.sweep to be one of: ${PIXEL_SWEEPS.join(", ")}`)
+        }
     }
 
     const originalNodes = Array.from(element.childNodes)
@@ -748,6 +756,25 @@ export function linetxt(element, options = {}) {
     }
 
     /**
+     * Assigns each glyph box its position in the sweep, per `settings.sweep`.
+     * Whitespace never has a box, so positions count glyphs only.
+     */
+    function sweepOrders(built, boxes) {
+        if (settings.sweep === "none") return boxes.map(() => 0)
+        if (settings.sweep === "text") return boxes.map((box, index) => index)
+
+        const unitIndex = new Map(built.units.map((unit, index) => [unit, index]))
+        const lineIndexes = resolveLineIndexes(built)
+        const nextOnLine = new Map()
+        return boxes.map((box) => {
+            const line = lineIndexes[unitIndex.get(box.unit)] ?? 0
+            const order = nextOnLine.get(line) ?? 0
+            nextOnLine.set(line, order + 1)
+            return order
+        })
+    }
+
+    /**
      * Builds everything the pixel preview draws from: the overlay canvas and,
      * for every glyph, its pixel shapes per level plus the moment it is
      * swapped for the real glyph.
@@ -780,14 +807,19 @@ export function linetxt(element, options = {}) {
         const { raster, boxes } = rasterized
         const data = raster.getContext("2d").getImageData(0, 0, raster.width, raster.height).data
         const levels = pixelLevels(fontSize, resolvePixelSize(settings.pixelSize, fontSize))
-        const stagger = resolveStagger(settings.stagger, boxes.length)
         const stepTotal = levels.length * settings.stepDuration
 
+        // Where each glyph sits in the sweep: its position within its line
+        // (every line sweeps at once), within the whole text (one reading-
+        // order wave), or nowhere (every glyph resolves together).
+        const orders = sweepOrders(built, boxes)
+        const stagger = resolveStagger(settings.stagger, Math.max(...orders, 0) + 1)
+
         const glyphs = []
-        for (const [order, box] of boxes.entries()) {
+        for (const [index, box] of boxes.entries()) {
             const shapes = buildPixelShapes(data, raster, box, levels, scale)
             if (!shapes) continue
-            const start = order * stagger
+            const start = orders[index] * stagger
             glyphs.push({
                 unit: box.unit,
                 shapes,

@@ -168,6 +168,18 @@ pixel steps have finished.
 | `revealDelay` | `0` | Milliseconds to hold the finest pixel level before the cut to the clean glyph |
 | `easing` | `"linear"` | Easing of a glyph's progress through its levels; `linear` holds every level equally |
 | `initialDelay` | `0` | Milliseconds to wait before the first frame |
+| `sweep` | `"line"` | What the stagger is keyed to: `"line"`, `"text"`, or `"none"` |
+| `lineSource` | `"auto"` | How lines are detected for `sweep: "line"`: `"auto"`, `"text"`, `"visual"`, as in line-reveal |
+
+The sweep decides how a paragraph behaves:
+
+- `"line"` — every line sweeps at the same time. Glyph `n` of each line starts
+  at `n × stagger`, so a whole paragraph is animating from the first frame
+  and no line waits for the one above it. The automatic stagger spreads the
+  longest line over the budget.
+- `"text"` — one wave in reading order across the whole text; the last line
+  is still blocks while the first is crisp.
+- `"none"` — every glyph resolves together, with no stagger at all.
 
 A single word at 130ms stagger and 90ms steps reads as the classic
 letter-by-letter resolve; the automatic stagger keeps a whole paragraph to a
@@ -192,10 +204,11 @@ How the pixel levels are built:
   positioned and `pointer-events: none`, so it never takes part in layout.
   Each frame fills every unresolved glyph's pixel blocks at its current level in
   the host's text colour; blocks are solid, with no fading or motion.
-- Glyph `n` (whitespace excluded) starts resolving at `n × stagger`, holds
-  each level for `stepDuration`, holds the finest level for `revealDelay`,
-  then cuts to the real glyph with a zero-duration opacity animation. The
-  overlay is removed when the last glyph is crisp, leaving plain DOM text.
+- Glyph `n` (whitespace excluded) of its line, or of the text for
+  `sweep: "text"`, starts resolving at `n × stagger`, holds each level for
+  `stepDuration`, holds the finest level for `revealDelay`, then cuts to the
+  real glyph with a zero-duration opacity animation. The overlay is removed
+  when the last glyph is crisp, leaving plain DOM text.
 - The overlay's animation is the clock for the whole preview; the canvas is
   repainted from its `currentTime` every frame. Pausing, finishing, or
   cancelling that animation drives the canvas exactly like the unit
@@ -205,10 +218,10 @@ How the pixel levels are built:
   the frozen `PIXEL_TUNING` object in `linetxt.js`. The effect is fully
   deterministic: the same text renders the same frames every time.
 
-Edge cases: a single character resolves through its own levels; long copy
-uses a faster automatic stagger so the sweep still completes in about a
-second; multiline and wrapped text continue the sweep across lines in reading
-order. When the document has no 2D canvas, or the host has no size, the text
+Edge cases: a single character resolves through its own levels; a long line
+uses a faster automatic stagger so its sweep still completes in about a
+second; multiline and wrapped text animate all lines at once, each line
+sweeping left to right. When the document has no 2D canvas, or the host has no size, the text
 is simply shown. Reduced motion renders static text as in every mode.
 
 The host receives `position: relative` only when it was `static`, so the
@@ -253,9 +266,10 @@ handling, and the playback lifecycle are already shared.
 - Confirm spaces, punctuation, emoji, and non-Latin graphemes remain intact.
 - Confirm multiline text wraps only between words, never inside a word.
 - Confirm `pixel` shows every glyph as blocks from the first frame, that
-  glyphs sharpen in hard steps from left to right, that no real glyph is
-  visible before its pixel steps have finished, and that the finished text is crisp
-  with the overlay removed.
+  glyphs sharpen in hard steps from left to right, that every line of a
+  paragraph animates at the same time, that no real glyph is visible before
+  its pixel steps have finished, and that the finished text is crisp with the
+  overlay removed.
 - Confirm no exit animation runs unless explicitly requested.
 
 ## Examples

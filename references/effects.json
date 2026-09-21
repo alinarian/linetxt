@@ -196,9 +196,27 @@
         "initialDelay": {
           "default": 0,
           "unit": "ms"
+        },
+        "sweep": {
+          "default": "line",
+          "values": [
+            "line",
+            "text",
+            "none"
+          ],
+          "meaning": "line: every line sweeps at once; text: one reading-order wave across the whole text; none: every glyph resolves together"
+        },
+        "lineSource": {
+          "default": "auto",
+          "values": [
+            "auto",
+            "text",
+            "visual"
+          ],
+          "meaning": "Line detection for sweep: line, as in line-reveal"
         }
       },
-      "delay_formula": "glyph n cuts to text at initialDelay + n * stagger + levels * stepDuration + revealDelay; whitespace is skipped in n",
+      "delay_formula": "glyph n of its line (sweep: line) or of the text (sweep: text) cuts to text at initialDelay + n * stagger + levels * stepDuration + revealDelay; whitespace is skipped in n; sweep: none uses n = 0 for every glyph",
       "levels": "Cell sizes start at 1.1em (one block per glyph) and halve until the next would drop below pixelSize; the grid is anchored to the glyph's ink bounds and stretched to tile them exactly.",
       "threshold": "A cell is drawn when 45% of it is ink (30% at the single-block level); weaker cells drop out, which makes coarse levels read as digital fragments.",
       "sampling": {
@@ -215,7 +233,8 @@
       "fallback": "No 2D canvas or a zero-size host shows the text directly; reduced motion renders static text.",
       "deterministic": true,
       "blur": "never",
-      "exit": "none"
+      "exit": "none",
+      "paragraphs": "With the default sweep every line animates from the first frame; no line waits for the one above it. The automatic stagger is sized to the longest line."
     }
   },
   "shared": {
