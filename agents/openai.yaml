@@ -1,4 +1,4 @@
 interface:
   display_name: "linetxt"
-  short_description: "Reveal text by typing, line by line, with a gentle rise, or resolving from pixel blocks"
+  short_description: "Reveal text by typing, line by line, with a gentle rise, or resolving from pixel blocks all at once"
   default_prompt: "Use $linetxt to reveal this text. Ask me which animation to apply: typewriter, line-reveal, gentle, or pixel."
